@@ -62,10 +62,17 @@ Alternatively, store it in the OS keychain (recommended for servers):
 
 ```bash
 source ~/.cargo/env        # if using rustup
-OPENSSL_NO_VENDOR=1 cargo build --release
+PYO3_PYTHON=python3 OPENSSL_NO_VENDOR=1 cargo build --release
 ```
 
+> **Note:** `PYO3_PYTHON=python3` tells the PyO3 build script which Python to link against. Without it, the linker cannot find the Python symbols.
+
 The binary lands at `target/release/openpika`. First build downloads crates and takes 3–5 minutes; subsequent builds are seconds.
+
+> **Disk space:** A full release build requires ~2 GB of free space. If you are tight on disk, clean debug artifacts first:
+> ```bash
+> cargo clean --profile dev   # frees ~2.7 GB, keeps release cache
+> ```
 
 ```bash
 ./target/release/openpika --help
@@ -83,17 +90,29 @@ uv pip install -e .
 cd ..
 ```
 
-Tell the Rust binary where the Python package lives:
+Tell the Rust binary where the Python package and its dependencies live.
+`OPENPIKA_PYTHON_PATH` is prepended to `sys.path`, so it needs two entries separated by `:` — the package source and the venv's site-packages:
 
 ```bash
-export OPENPIKA_PYTHON_PATH="/root/Projects/agent/openpika/openpika-python/src"
+export OPENPIKA_PYTHON_PATH="\
+/root/Projects/agent/openpika/openpika-python/src:\
+/root/Projects/agent/openpika/openpika-python/.venv/lib/python3.12/site-packages"
 ```
 
-Add this to `~/.bashrc` alongside the API key so you don't have to repeat it:
+Add all three exports to `~/.bashrc` so they persist across sessions:
 
 ```bash
-echo 'export OPENPIKA_PYTHON_PATH="/root/Projects/agent/openpika/openpika-python/src"' >> ~/.bashrc
+cat >> ~/.bashrc << 'EOF'
+export ANTHROPIC_API_KEY="sk-ant-..."    # fill in your key
+export OPENPIKA_PYTHON_PATH="\
+/root/Projects/agent/openpika/openpika-python/src:\
+/root/Projects/agent/openpika/openpika-python/.venv/lib/python3.12/site-packages"
+EOF
+source ~/.bashrc
 ```
+
+> **Alternative:** simply `source .venv/bin/activate` in your shell before running
+> `openpika` — whichever you find more convenient.
 
 ---
 

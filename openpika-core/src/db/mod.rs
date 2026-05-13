@@ -47,17 +47,30 @@ pub async fn schema_version(pool: &Pool) -> Result<i64> {
 }
 
 fn prepare_sqlite_dir(url: &str) -> Result<()> {
-    // sqlite:///absolute/path  OR  sqlite://relative
-    let path_part = url
-        .strip_prefix("sqlite://")
-        .unwrap_or(url);
+    // sqlite:///absolute/path  OR  sqlite://relative/path
+    // Strip query string before extracting path (e.g. ?mode=rwc)
+    let raw = url.strip_prefix("sqlite://").unwrap_or(url);
+    let path_part = raw.split('?').next().unwrap_or(raw);
 
     let path = std::path::Path::new(path_part);
+
+    // Create parent directory
     if let Some(parent) = path.parent() {
         if !parent.as_os_str().is_empty() {
             std::fs::create_dir_all(parent)
                 .with_context(|| format!("Cannot create SQLite directory: {}", parent.display()))?;
         }
     }
+
+    // Touch the file so sqlx AnyPool can open it (avoids SQLITE_CANTOPEN on new DBs)
+    if !path.exists() && !path_part.is_empty() && path_part != ":memory:" {
+        std::fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(false)
+            .open(path)
+            .with_context(|| format!("Cannot create SQLite file: {}", path.display()))?;
+    }
+
     Ok(())
 }

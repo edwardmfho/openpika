@@ -72,9 +72,16 @@ fn import_agent_module(py: Python<'_>) -> Result<Bound<'_, PyModule>> {
         .downcast::<pyo3::types::PyList>()
         .map_err(|_| anyhow::anyhow!("sys.path is not a list"))?;
 
-    // Allow the dev venv path to be injected via environment variable.
+    // OPENPIKA_PYTHON_PATH may contain multiple colon-separated entries
+    // (e.g. "src/openpika:venv/lib/python3.12/site-packages").
+    // Insert each at position 0 in reverse order so the first entry ends up first.
     if let Ok(extra_path) = std::env::var("OPENPIKA_PYTHON_PATH") {
-        path.insert(0, extra_path)?;
+        let entries: Vec<&str> = extra_path.split(':').collect();
+        for entry in entries.iter().rev() {
+            if !entry.is_empty() {
+                path.insert(0, *entry)?;
+            }
+        }
     }
 
     py.import("openpika.entrypoint")

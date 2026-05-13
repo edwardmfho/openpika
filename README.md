@@ -120,7 +120,7 @@ sudo apt-get install -y libssl-dev pkg-config python3-dev
 
 # Build the Rust binary
 source ~/.cargo/env        # if using rustup
-cargo build --release
+PYO3_PYTHON=python3 OPENSSL_NO_VENDOR=1 cargo build --release
 
 # Install the Python package
 cd openpika-python
