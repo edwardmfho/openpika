@@ -1,0 +1,74 @@
+[workspace]
+resolver = "2"
+members = [
+    "openpika-core",
+]
+
+[workspace.package]
+version      = "0.1.0"
+edition      = "2021"
+authors      = ["OpenPika Contributors"]
+license      = "MIT"
+rust-version = "1.80"
+
+[workspace.dependencies]
+# Async runtime
+tokio       = { version = "1",  features = ["full"] }
+
+# Web framework
+axum        = { version = "0.8", features = ["http2", "macros"] }
+tower       = { version = "0.5", features = ["full"] }
+tower-http  = { version = "0.6", features = ["cors", "trace"] }
+
+# Serialization
+serde       = { version = "1",  features = ["derive"] }
+serde_json  = { version = "1" }
+
+# Database
+sqlx        = { version = "0.8", features = ["runtime-tokio-rustls", "sqlite", "postgres", "mysql", "migrate", "uuid"] }
+
+# PyO3 interop
+pyo3        = { version = "0.23", features = ["auto-initialize", "extension-module"] }
+
+# Authentication / JWT
+jsonwebtoken = { version = "9" }
+oauth2       = { version = "4" }
+
+# Tokenizer
+tiktoken-rs  = { version = "0.6" }
+
+# Security
+keyring      = { version = "3" }
+aes-gcm      = { version = "0.10" }
+rand         = { version = "0.8" }
+
+# File system helpers
+walkdir      = { version = "2" }
+ignore       = { version = "0.4" }
+
+# HTTP client
+reqwest      = { version = "0.12", features = ["json", "rustls-tls"] }
+
+# CLI
+clap         = { version = "4", features = ["derive", "env"] }
+
+# Tracing
+tracing             = { version = "0.1" }
+tracing-subscriber  = { version = "0.3", features = ["env-filter", "json"] }
+
+# Error handling
+anyhow  = { version = "1" }
+thiserror = { version = "2" }
+
+# Config
+config  = { version = "0.15" }
+dirs    = { version = "5" }
+
+# UUID
+uuid    = { version = "1", features = ["v4", "serde"] }
+
+# Time
+chrono  = { version = "0.4", features = ["serde"] }
+
+# Vector math (Phase 5 - cosine similarity)
+nalgebra = { version = "0.33" }
