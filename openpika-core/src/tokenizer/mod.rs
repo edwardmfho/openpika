@@ -1,3 +1,4 @@
+pub mod embeddings;
 pub mod rag;
 
 use tiktoken_rs::get_bpe_from_model;

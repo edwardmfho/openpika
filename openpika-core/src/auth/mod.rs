@@ -1,3 +1,4 @@
+pub mod callback_server;
 pub mod oidc;
 
 use anyhow::{Context, Result};

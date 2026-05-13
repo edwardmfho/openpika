@@ -6,14 +6,14 @@ use axum::{
 
 pub fn api_routes() -> Router<AppState> {
     Router::new()
-        // OpenAI-compatible chat completions endpoint
         .route("/v1/chat/completions", post(handlers::chat_completions))
-        // Session management
         .route("/v1/sessions", get(handlers::list_sessions))
         .route("/v1/sessions/:id", get(handlers::get_session))
         .route("/v1/sessions/:id/messages", get(handlers::get_messages))
 }
 
+/// Webhook routes — HMAC signature verification is applied in gateway::serve()
+/// after the AppState is available, so middleware can read config.webhook_secret.
 pub fn webhook_routes() -> Router<AppState> {
     Router::new()
         .route("/webhooks/:platform", post(handlers::inbound_webhook))

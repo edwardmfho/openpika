@@ -27,6 +27,11 @@ pub struct AppConfig {
     /// Context window limits
     #[serde(default)]
     pub context: ContextConfig,
+
+    /// Encrypt sensitive DB fields at rest using AES-256-GCM.
+    /// Key is stored in the OS keychain (keyring crate).
+    #[serde(default)]
+    pub encrypt_at_rest: bool,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
@@ -88,6 +93,20 @@ fn default_bind() -> String         { "0.0.0.0:8080".into() }
 fn default_max_tokens() -> usize    { 100_000 }
 fn default_raw_turns() -> usize     { 3 }
 fn default_top_k_tools() -> usize   { 3 }
+
+impl Default for AppConfig {
+    fn default() -> Self {
+        Self {
+            database_url: default_database_url(),
+            python_path: default_python_path(),
+            default_model: default_model(),
+            gateway: GatewayConfig::default(),
+            auth: AuthConfig::default(),
+            context: ContextConfig::default(),
+            encrypt_at_rest: false,
+        }
+    }
+}
 
 impl AppConfig {
     pub fn load(path: Option<&str>) -> Result<Self> {

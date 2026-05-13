@@ -9,7 +9,6 @@
 
 use anyhow::{Context, Result};
 use pyo3::prelude::*;
-use pyo3::types::PyList;
 use serde_json::Value;
 
 use crate::{config::AppConfig, db::Pool};

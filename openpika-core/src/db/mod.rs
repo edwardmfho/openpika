@@ -1,3 +1,4 @@
+pub mod crypto;
 pub mod migrations;
 pub mod models;
 pub mod queries;

@@ -4,7 +4,7 @@ pub mod routes;
 
 use crate::{config::AppConfig, db::Pool};
 use anyhow::Result;
-use axum::Router;
+use axum::{middleware as axum_middleware, Router};
 use std::sync::Arc;
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
 
@@ -22,11 +22,20 @@ pub async fn serve(bind: String, db: Pool, config: AppConfig) -> Result<()> {
         config: Arc::new(config),
     };
 
-    let cors = CorsLayer::permissive(); // Tightened per AppConfig.cors_origins in middleware
+    let cors = CorsLayer::permissive();
+
+    // Build the router, bind state, then layer webhook HMAC middleware.
+    // The middleware needs state (to read webhook_secret), so it is added
+    // via from_fn_with_state *after* with_state is called on webhook_routes.
+    let webhook = routes::webhook_routes()
+        .route_layer(axum_middleware::from_fn_with_state(
+            state.clone(),
+            middleware::verify_webhook_signature,
+        ));
 
     let app = Router::new()
         .merge(routes::api_routes())
-        .merge(routes::webhook_routes())
+        .merge(webhook)
         .merge(routes::health_routes())
         .layer(cors)
         .layer(TraceLayer::new_for_http())
