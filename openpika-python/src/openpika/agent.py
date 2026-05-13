@@ -1,12 +1,7 @@
-"""pydantic-ai agent definition.
-
-The agent is constructed once at module import time (cold start) and reused
-across calls — model, system prompt, and tool list are immutable per process.
-"""
+"""pydantic-ai agent definition."""
 
 from __future__ import annotations
 
-import os
 from functools import lru_cache
 
 from pydantic_ai import Agent
@@ -23,14 +18,12 @@ Always reason carefully, use tools when needed, and be concise.
 
 @lru_cache(maxsize=8)
 def get_agent(model_id: str) -> Agent:
-    """Return a cached Agent for the given model ID."""
-    # API key comes from OS keychain (injected by Rust) or environment variable.
-    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
-    if not api_key:
-        # Attempt to read from keyring via env variable set by the Rust layer
-        api_key = os.environ.get("OPENPIKA_ANTHROPIC_KEY", "")
+    """Return a cached Agent for the given model ID.
 
-    model = AnthropicModel(model_id, api_key=api_key or None)
+    ANTHROPIC_API_KEY is read automatically by the Anthropic SDK from the
+    environment — set it in the shell or via `openpika credentials set`.
+    """
+    model = AnthropicModel(model_id)
 
     return Agent(
         model=model,
