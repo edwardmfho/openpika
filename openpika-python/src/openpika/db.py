@@ -1,0 +1,491 @@
+"""Async database layer for tool configs and skills (SQLAlchemy + aiosqlite/asyncpg)."""
+from __future__ import annotations
+
+import json
+import uuid
+from contextlib import asynccontextmanager
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from typing import Any, AsyncIterator
+
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
+
+from openpika.config import config
+
+_engine: AsyncEngine | None = None
+_factory: async_sessionmaker[AsyncSession] | None = None
+_initialized = False
+
+
+# ---------------------------------------------------------------------------
+# Engine
+# ---------------------------------------------------------------------------
+
+def _make_async_url(url: str) -> str:
+    if url.startswith("sqlite:///"):
+        return url.replace("sqlite:///", "sqlite+aiosqlite:///", 1)
+    if url.startswith("sqlite:///:memory:"):
+        return "sqlite+aiosqlite:///:memory:"
+    for pg in ("postgresql://", "postgres://"):
+        if url.startswith(pg):
+            return "postgresql+asyncpg://" + url[len(pg):]
+    return url
+
+
+async def _get_factory() -> async_sessionmaker[AsyncSession]:
+    global _engine, _factory
+    if _factory is None:
+        kw: dict[str, Any] = {"echo": False}
+        url = _make_async_url(config.database_url)
+        if url.startswith("sqlite"):
+            kw["connect_args"] = {"check_same_thread": False}
+        _engine = create_async_engine(url, **kw)
+        _factory = async_sessionmaker(_engine, expire_on_commit=False)
+    return _factory
+
+
+@asynccontextmanager
+async def session_ctx() -> AsyncIterator[AsyncSession]:
+    if _factory is None:
+        raise RuntimeError("Call init_db() before using the database.")
+    async with _factory() as sess:
+        try:
+            yield sess
+            await sess.commit()
+        except Exception:
+            await sess.rollback()
+            raise
+
+
+# ---------------------------------------------------------------------------
+# DDL (embedded, idempotent)
+# ---------------------------------------------------------------------------
+
+_DDL: list[str] = [
+    # 0001 tables (IF NOT EXISTS — safe to re-run)
+    """CREATE TABLE IF NOT EXISTS sessions (
+        id TEXT PRIMARY KEY NOT NULL,
+        user_id TEXT,
+        source TEXT NOT NULL DEFAULT 'cli',
+        title TEXT,
+        model TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        parent_session_id TEXT REFERENCES sessions(id) ON DELETE SET NULL
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id)",
+    "CREATE INDEX IF NOT EXISTS idx_sessions_updated_at ON sessions(updated_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_sessions_parent ON sessions(parent_session_id)",
+    """CREATE TABLE IF NOT EXISTS messages (
+        id TEXT PRIMARY KEY NOT NULL,
+        session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+        role TEXT NOT NULL,
+        content TEXT NOT NULL,
+        token_count INTEGER,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id, created_at ASC)",
+    """CREATE TABLE IF NOT EXISTS tool_embeddings (
+        name TEXT PRIMARY KEY NOT NULL,
+        description TEXT NOT NULL,
+        embedding BLOB NOT NULL
+    )""",
+    """CREATE TABLE IF NOT EXISTS schema_meta (
+        key TEXT PRIMARY KEY NOT NULL,
+        value TEXT NOT NULL
+    )""",
+    # 0002 tables
+    """CREATE TABLE IF NOT EXISTS tool_configs (
+        id TEXT PRIMARY KEY NOT NULL,
+        name TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        description TEXT NOT NULL DEFAULT '',
+        config_json TEXT NOT NULL DEFAULT '{}',
+        enabled INTEGER NOT NULL DEFAULT 1,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )""",
+    """CREATE TABLE IF NOT EXISTS session_tool_overrides (
+        session_id TEXT NOT NULL,
+        tool_id TEXT NOT NULL,
+        enabled INTEGER NOT NULL DEFAULT 1,
+        PRIMARY KEY (session_id, tool_id)
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_sto_session ON session_tool_overrides(session_id)",
+    """CREATE TABLE IF NOT EXISTS skills (
+        id TEXT PRIMARY KEY NOT NULL,
+        name TEXT NOT NULL,
+        description TEXT NOT NULL DEFAULT '',
+        icon TEXT NOT NULL DEFAULT '',
+        prompt_template TEXT NOT NULL DEFAULT '',
+        params_schema TEXT NOT NULL DEFAULT '{}',
+        is_builtin INTEGER NOT NULL DEFAULT 0,
+        pinned INTEGER NOT NULL DEFAULT 0,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )""",
+]
+
+# ---------------------------------------------------------------------------
+# Seed data
+# ---------------------------------------------------------------------------
+
+_BUILTIN_TOOLS: list[dict[str, Any]] = [
+    {"id": "web_search", "name": "Web Search",  "kind": "native", "description": "Search the web using DuckDuckGo", "sort_order": 0},
+    {"id": "read_file",  "name": "Read File",   "kind": "native", "description": "Read a file from the filesystem", "sort_order": 1},
+    {"id": "write_file", "name": "Write File",  "kind": "native", "description": "Write content to a file",         "sort_order": 2},
+    {"id": "terminal",   "name": "Terminal",    "kind": "native", "description": "Execute a shell command",          "sort_order": 3},
+]
+
+_BUILTIN_SKILLS: list[dict[str, Any]] = [
+    {
+        "id": "summarise", "name": "Summarise", "icon": "📝",
+        "description": "Condense a block of text into key points",
+        "prompt_template": "Please summarise the following text concisely:\n\n{{text}}",
+        "params_schema": json.dumps({"text": {"type": "string", "label": "Text to summarise", "required": True, "multiline": True}}),
+        "sort_order": 0,
+    },
+    {
+        "id": "draft_email", "name": "Draft Email", "icon": "✉️",
+        "description": "Write a professional email",
+        "prompt_template": "Write a professional email.\n\nSubject: {{subject}}\nContext: {{context}}\nTone: {{tone}}",
+        "params_schema": json.dumps({
+            "subject": {"type": "string", "label": "Subject", "required": True},
+            "context": {"type": "string", "label": "What the email is about", "required": True, "multiline": True},
+            "tone":    {"type": "string", "label": "Tone", "default": "professional"},
+        }),
+        "sort_order": 1,
+    },
+    {
+        "id": "explain_code", "name": "Explain Code", "icon": "💻",
+        "description": "Plain-English explanation of a code snippet",
+        "prompt_template": "Explain the following {{language}} code in plain English:\n\n```{{language}}\n{{code}}\n```",
+        "params_schema": json.dumps({
+            "code":     {"type": "string", "label": "Code snippet", "required": True, "multiline": True},
+            "language": {"type": "string", "label": "Language", "default": ""},
+        }),
+        "sort_order": 2,
+    },
+    {
+        "id": "search_web", "name": "Search Web", "icon": "🔍",
+        "description": "Search the web and summarise results",
+        "prompt_template": "Search the web for: {{query}}\n\nSummarise what you find.",
+        "params_schema": json.dumps({"query": {"type": "string", "label": "Search query", "required": True}}),
+        "sort_order": 3,
+    },
+    {
+        "id": "write_file_skill", "name": "Write File", "icon": "📁",
+        "description": "Create or update a file with specified content",
+        "prompt_template": "Write the following content to {{path}}:\n\n{{content}}",
+        "params_schema": json.dumps({
+            "path":    {"type": "string", "label": "File path", "required": True},
+            "content": {"type": "string", "label": "Content", "required": True, "multiline": True},
+        }),
+        "sort_order": 4,
+    },
+]
+
+
+async def init_db() -> None:
+    """Create tables and seed built-in records. Idempotent — safe to call on every startup."""
+    global _initialized
+    if _initialized:
+        return
+    factory = await _get_factory()
+    assert _engine is not None
+    async with _engine.begin() as conn:
+        for stmt in _DDL:
+            await conn.execute(text(stmt))
+        now = _utcnow()
+        for tool in _BUILTIN_TOOLS:
+            await conn.execute(
+                text(
+                    "INSERT INTO tool_configs(id, name, kind, description, config_json, sort_order, created_at, updated_at) "
+                    "SELECT :id, :name, :kind, :description, '{}', :sort_order, :now, :now "
+                    "WHERE NOT EXISTS (SELECT 1 FROM tool_configs WHERE id = :id)"
+                ),
+                {**tool, "now": now},
+            )
+        for skill in _BUILTIN_SKILLS:
+            await conn.execute(
+                text(
+                    "INSERT INTO skills(id, name, description, icon, prompt_template, params_schema, is_builtin, sort_order, created_at, updated_at) "
+                    "SELECT :id, :name, :description, :icon, :prompt_template, :params_schema, 1, :sort_order, :now, :now "
+                    "WHERE NOT EXISTS (SELECT 1 FROM skills WHERE id = :id)"
+                ),
+                {**skill, "now": now},
+            )
+    _initialized = True
+    # Re-assign _factory reference so session_ctx works after engine.begin()
+    global _factory
+    _factory = factory
+
+
+# ---------------------------------------------------------------------------
+# Data classes
+# ---------------------------------------------------------------------------
+
+@dataclass
+class ToolConfig:
+    id: str
+    name: str
+    kind: str
+    description: str
+    config: dict[str, Any]
+    enabled: bool
+    sort_order: int
+
+
+@dataclass
+class SessionToolOverride:
+    session_id: str
+    tool_id: str
+    enabled: bool
+
+
+@dataclass
+class Skill:
+    id: str
+    name: str
+    description: str
+    icon: str
+    prompt_template: str
+    params_schema: dict[str, Any]
+    is_builtin: bool
+    pinned: bool
+    sort_order: int
+
+
+# ---------------------------------------------------------------------------
+# Row helpers
+# ---------------------------------------------------------------------------
+
+def _to_tool(row: Any) -> ToolConfig:
+    d = dict(row._mapping)
+    try:
+        config_dict = json.loads(d.get("config_json") or "{}")
+    except json.JSONDecodeError:
+        config_dict = {}
+    return ToolConfig(
+        id=d["id"],
+        name=d["name"],
+        kind=d["kind"],
+        description=d.get("description", ""),
+        config=config_dict,
+        enabled=bool(d["enabled"]),
+        sort_order=d.get("sort_order", 0),
+    )
+
+
+def _to_skill(row: Any) -> Skill:
+    d = dict(row._mapping)
+    try:
+        schema = json.loads(d.get("params_schema") or "{}")
+    except json.JSONDecodeError:
+        schema = {}
+    return Skill(
+        id=d["id"],
+        name=d["name"],
+        description=d.get("description", ""),
+        icon=d.get("icon") or "",
+        prompt_template=d.get("prompt_template", ""),
+        params_schema=schema,
+        is_builtin=bool(d.get("is_builtin", 0)),
+        pinned=bool(d.get("pinned", 0)),
+        sort_order=d.get("sort_order", 0),
+    )
+
+
+def _utcnow() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+# ---------------------------------------------------------------------------
+# Tool config CRUD
+# ---------------------------------------------------------------------------
+
+async def list_tools() -> list[ToolConfig]:
+    async with session_ctx() as sess:
+        rows = await sess.execute(text("SELECT * FROM tool_configs ORDER BY sort_order, id"))
+        return [_to_tool(r) for r in rows.fetchall()]
+
+
+async def get_tool(tool_id: str) -> ToolConfig | None:
+    async with session_ctx() as sess:
+        row = (await sess.execute(text("SELECT * FROM tool_configs WHERE id = :id"), {"id": tool_id})).fetchone()
+        return _to_tool(row) if row else None
+
+
+async def create_tool(
+    name: str,
+    kind: str,
+    description: str = "",
+    config: dict[str, Any] | None = None,
+    sort_order: int = 0,
+) -> ToolConfig:
+    if kind == "native":
+        raise ValueError("Cannot create native tools via API — use the built-in seed.")
+    tool_id = str(uuid.uuid4())
+    now = _utcnow()
+    async with session_ctx() as sess:
+        await sess.execute(
+            text(
+                "INSERT INTO tool_configs(id, name, kind, description, config_json, enabled, sort_order, created_at, updated_at) "
+                "VALUES (:id, :name, :kind, :description, :config_json, 1, :sort_order, :now, :now)"
+            ),
+            {
+                "id": tool_id, "name": name, "kind": kind,
+                "description": description,
+                "config_json": json.dumps(config or {}),
+                "sort_order": sort_order, "now": now,
+            },
+        )
+    return await get_tool(tool_id)  # type: ignore[return-value]
+
+
+async def update_tool(tool_id: str, **fields: Any) -> ToolConfig | None:
+    """Update a tool. Allowed fields: name, description, enabled, sort_order, config (dict)."""
+    allowed = {"name", "description", "enabled", "sort_order", "config"}
+    params: dict[str, Any] = {"id": tool_id, "now": _utcnow()}
+    clauses: list[str] = []
+    for key, val in fields.items():
+        if key not in allowed:
+            continue
+        if key == "config":
+            clauses.append("config_json = :config_json")
+            params["config_json"] = json.dumps(val)
+        elif key == "enabled":
+            clauses.append("enabled = :enabled")
+            params["enabled"] = 1 if val else 0
+        else:
+            clauses.append(f"{key} = :{key}")
+            params[key] = val
+    if not clauses:
+        return await get_tool(tool_id)
+    clauses.append("updated_at = :now")
+    async with session_ctx() as sess:
+        await sess.execute(text(f"UPDATE tool_configs SET {', '.join(clauses)} WHERE id = :id"), params)
+    return await get_tool(tool_id)
+
+
+async def delete_tool(tool_id: str) -> bool:
+    """Delete a non-native tool. Returns False if not found or if native."""
+    async with session_ctx() as sess:
+        result = await sess.execute(
+            text("DELETE FROM tool_configs WHERE id = :id AND kind != 'native'"), {"id": tool_id}
+        )
+        return result.rowcount > 0
+
+
+# ---------------------------------------------------------------------------
+# Session tool overrides
+# ---------------------------------------------------------------------------
+
+async def get_session_overrides(session_id: str) -> dict[str, bool]:
+    async with session_ctx() as sess:
+        rows = await sess.execute(
+            text("SELECT tool_id, enabled FROM session_tool_overrides WHERE session_id = :sid"),
+            {"sid": session_id},
+        )
+        return {r.tool_id: bool(r.enabled) for r in rows.fetchall()}
+
+
+async def set_session_override(session_id: str, tool_id: str, enabled: bool) -> None:
+    async with session_ctx() as sess:
+        await sess.execute(
+            text(
+                "INSERT INTO session_tool_overrides(session_id, tool_id, enabled) VALUES (:sid, :tid, :en) "
+                "ON CONFLICT(session_id, tool_id) DO UPDATE SET enabled = excluded.enabled"
+            ),
+            {"sid": session_id, "tid": tool_id, "en": 1 if enabled else 0},
+        )
+
+
+async def delete_session_override(session_id: str, tool_id: str) -> bool:
+    async with session_ctx() as sess:
+        result = await sess.execute(
+            text("DELETE FROM session_tool_overrides WHERE session_id = :sid AND tool_id = :tid"),
+            {"sid": session_id, "tid": tool_id},
+        )
+        return result.rowcount > 0
+
+
+# ---------------------------------------------------------------------------
+# Skills CRUD
+# ---------------------------------------------------------------------------
+
+async def list_skills() -> list[Skill]:
+    async with session_ctx() as sess:
+        rows = await sess.execute(text("SELECT * FROM skills ORDER BY sort_order, id"))
+        return [_to_skill(r) for r in rows.fetchall()]
+
+
+async def get_skill(skill_id: str) -> Skill | None:
+    async with session_ctx() as sess:
+        row = (await sess.execute(text("SELECT * FROM skills WHERE id = :id"), {"id": skill_id})).fetchone()
+        return _to_skill(row) if row else None
+
+
+async def create_skill(
+    name: str,
+    prompt_template: str,
+    description: str = "",
+    icon: str = "",
+    params_schema: dict[str, Any] | None = None,
+    pinned: bool = False,
+    sort_order: int = 0,
+) -> Skill:
+    skill_id = str(uuid.uuid4())
+    now = _utcnow()
+    async with session_ctx() as sess:
+        await sess.execute(
+            text(
+                "INSERT INTO skills(id, name, description, icon, prompt_template, params_schema, is_builtin, pinned, sort_order, created_at, updated_at) "
+                "VALUES (:id, :name, :description, :icon, :prompt_template, :params_schema, 0, :pinned, :sort_order, :now, :now)"
+            ),
+            {
+                "id": skill_id, "name": name, "description": description, "icon": icon,
+                "prompt_template": prompt_template,
+                "params_schema": json.dumps(params_schema or {}),
+                "pinned": 1 if pinned else 0,
+                "sort_order": sort_order, "now": now,
+            },
+        )
+    return await get_skill(skill_id)  # type: ignore[return-value]
+
+
+async def update_skill(skill_id: str, **fields: Any) -> Skill | None:
+    """Update a skill. Allowed fields: name, description, icon, prompt_template, params_schema, pinned, sort_order."""
+    allowed = {"name", "description", "icon", "prompt_template", "params_schema", "pinned", "sort_order"}
+    params: dict[str, Any] = {"id": skill_id, "now": _utcnow()}
+    clauses: list[str] = []
+    for key, val in fields.items():
+        if key not in allowed:
+            continue
+        if key == "params_schema":
+            clauses.append("params_schema = :params_schema")
+            params["params_schema"] = json.dumps(val)
+        elif key == "pinned":
+            clauses.append("pinned = :pinned")
+            params["pinned"] = 1 if val else 0
+        else:
+            clauses.append(f"{key} = :{key}")
+            params[key] = val
+    if not clauses:
+        return await get_skill(skill_id)
+    clauses.append("updated_at = :now")
+    async with session_ctx() as sess:
+        await sess.execute(text(f"UPDATE skills SET {', '.join(clauses)} WHERE id = :id"), params)
+    return await get_skill(skill_id)
+
+
+async def delete_skill(skill_id: str) -> bool:
+    """Delete a non-builtin skill. Returns False if not found or if builtin."""
+    async with session_ctx() as sess:
+        result = await sess.execute(
+            text("DELETE FROM skills WHERE id = :id AND is_builtin = 0"), {"id": skill_id}
+        )
+        return result.rowcount > 0
