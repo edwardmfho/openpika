@@ -1,31 +1,91 @@
 # OpenPika — Quick Start
 
-This guide gets you from zero to a running agent on Ubuntu 24.04 (the current host). All commands assume you are inside the `openpika/` directory.
+---
+
+## Option A — Pure Python (no Rust required)
+
+This is the fastest path: no compilation needed, works anywhere Python 3.12+ is available.
 
 ```bash
-cd /root/Projects/agent/openpika
+# Install
+pip install 'openpika[server]'
+
+# One-time setup wizard (API key, model, port)
+openpika init
+
+# Run a task
+openpika run "What tools do you have available?"
+
+# Interactive chat
+openpika chat
+
+# Start the HTTP gateway
+openpika serve
 ```
+
+That's it. Settings are stored in `~/.openpika/config.toml` and can be changed at any time with `openpika init` or `openpika config <key> <value>`.
+
+> **Python gateway note:** `openpika serve` in pure-Python mode uses a FastAPI/uvicorn ASGI server. It exposes the same HTTP API as the Rust binary. For production workloads that handle thousands of concurrent connections, use Option B (Rust binary) instead.
+
+---
+
+## Option B — Full Rust+Python build (recommended for production)
+
+This guide gets you from zero to a running agent on **Linux, macOS, or Windows**. All commands assume you are inside the `openpika/` directory.
 
 ---
 
 ## 1. Prerequisites
 
-Everything below is already installed on this host. If you are on a fresh machine, run:
+**Rust toolchain**
+
+On Linux and macOS, install via rustup:
 
 ```bash
-# Rust toolchain
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-source ~/.cargo/env
+source ~/.cargo/env   # or open a new terminal
+```
 
-# System deps (Ubuntu/Debian)
+On Windows, download and run [rustup-init.exe](https://rustup.rs).
+
+**System dependencies**
+
+*Linux (Ubuntu / Debian):*
+
+```bash
 sudo apt-get update && sudo apt-get install -y \
     libssl-dev pkg-config python3-dev python3-pip
+```
 
-# uv (fast Python package manager)
+*Linux (Fedora / RHEL):*
+
+```bash
+sudo dnf install -y openssl-devel pkg-config python3-devel python3-pip
+```
+
+*macOS:*
+
+Install [Homebrew](https://brew.sh) if you haven't already, then:
+
+```bash
+brew install openssl pkg-config
+```
+
+Python 3.12+ is available via `brew install python@3.12` or from [python.org](https://www.python.org/downloads/).
+
+*Windows:*
+
+Install [Build Tools for Visual Studio](https://visualstudio.microsoft.com/visual-cpp-build-tools/) and select the **Desktop development with C++** workload. OpenSSL is vendored automatically on Windows so no separate install is needed.
+
+Install Python 3.12+ from [python.org](https://www.python.org/downloads/).
+
+**uv — fast Python package manager**
+
+```bash
 pip install uv
 ```
 
-Verify:
+Verify everything is set up:
 
 ```bash
 rustc --version     # ≥ 1.80
@@ -37,20 +97,37 @@ uv --version
 
 ## 2. Set your API key
 
-OpenPika reads `ANTHROPIC_API_KEY` from the environment. Add it to your shell:
+OpenPika reads `ANTHROPIC_API_KEY` from the environment.
+
+*Linux / macOS — set for this session:*
 
 ```bash
 export ANTHROPIC_API_KEY="sk-ant-..."
 ```
 
-To persist it across sessions:
+To persist across sessions, add the export to your shell profile:
 
 ```bash
-echo 'export ANTHROPIC_API_KEY="sk-ant-..."' >> ~/.bashrc
-source ~/.bashrc
+# bash
+echo 'export ANTHROPIC_API_KEY="sk-ant-..."' >> ~/.bashrc && source ~/.bashrc
+
+# zsh (macOS default since Catalina)
+echo 'export ANTHROPIC_API_KEY="sk-ant-..."' >> ~/.zshrc && source ~/.zshrc
 ```
 
-Alternatively, store it in the OS keychain (recommended for servers):
+*Windows (PowerShell) — set for this session:*
+
+```powershell
+$env:ANTHROPIC_API_KEY = "sk-ant-..."
+```
+
+To persist across sessions:
+
+```powershell
+[System.Environment]::SetEnvironmentVariable("ANTHROPIC_API_KEY", "sk-ant-...", "User")
+```
+
+**OS keychain (recommended for shared or production servers):**
 
 ```bash
 ./target/release/openpika credentials set ANTHROPIC_API_KEY sk-ant-...
@@ -60,27 +137,46 @@ Alternatively, store it in the OS keychain (recommended for servers):
 
 ## 3. Build the Rust binary
 
+*Linux / macOS:*
+
 ```bash
-source ~/.cargo/env        # if using rustup
 PYO3_PYTHON=python3 OPENSSL_NO_VENDOR=1 cargo build --release
 ```
 
-> **Note:** `PYO3_PYTHON=python3` tells the PyO3 build script which Python to link against. Without it, the linker cannot find the Python symbols.
-
-The binary lands at `target/release/openpika`. First build downloads crates and takes 3–5 minutes; subsequent builds are seconds.
-
-> **Disk space:** A full release build requires ~2 GB of free space. If you are tight on disk, clean debug artifacts first:
+> **macOS note:** If you see a linker error about OpenSSL, set the path explicitly:
 > ```bash
-> cargo clean --profile dev   # frees ~2.7 GB, keeps release cache
+> export OPENSSL_DIR=$(brew --prefix openssl)
+> cargo build --release
 > ```
 
+*Windows (PowerShell):*
+
+```powershell
+$env:PYO3_PYTHON = "python"
+cargo build --release
+```
+
+> **Note:** `PYO3_PYTHON` tells the PyO3 build script which Python interpreter to link against.
+
+The binary lands at `target/release/openpika` (Linux/macOS) or `target\release\openpika.exe` (Windows). The first build downloads crates and takes 3–5 minutes; subsequent builds are seconds.
+
+> **Disk space:** A full release build requires ~2 GB of free space. To reclaim debug artifacts without touching the release cache:
+> ```bash
+> cargo clean --profile dev
+> ```
+
+Confirm the binary works:
+
 ```bash
-./target/release/openpika --help
+./target/release/openpika --help          # Linux / macOS
+.\target\release\openpika.exe --help      # Windows
 ```
 
 ---
 
 ## 4. Set up the Python brain
+
+*Linux / macOS:*
 
 ```bash
 cd openpika-python
@@ -90,29 +186,46 @@ uv pip install -e .
 cd ..
 ```
 
-Tell the Rust binary where the Python package and its dependencies live.
-`OPENPIKA_PYTHON_PATH` is prepended to `sys.path`, so it needs two entries separated by `:` — the package source and the venv's site-packages:
+*Windows (PowerShell):*
+
+```powershell
+cd openpika-python
+uv venv .venv
+.venv\Scripts\Activate.ps1
+uv pip install -e .
+cd ..
+```
+
+Tell the Rust binary where the Python package lives by setting `OPENPIKA_PYTHON_PATH`.
+Replace `<repo-root>` with the absolute path to your `openpika/` clone.
+
+*Linux / macOS:*
 
 ```bash
 export OPENPIKA_PYTHON_PATH="\
-/root/Projects/agent/openpika/openpika-python/src:\
-/root/Projects/agent/openpika/openpika-python/.venv/lib/python3.12/site-packages"
+<repo-root>/openpika-python/src:\
+<repo-root>/openpika-python/.venv/lib/python3.12/site-packages"
 ```
 
-Add all three exports to `~/.bashrc` so they persist across sessions:
+To set this once and persist it, add all exports to your shell profile:
 
 ```bash
 cat >> ~/.bashrc << 'EOF'
-export ANTHROPIC_API_KEY="sk-ant-..."    # fill in your key
-export OPENPIKA_PYTHON_PATH="\
-/root/Projects/agent/openpika/openpika-python/src:\
-/root/Projects/agent/openpika/openpika-python/.venv/lib/python3.12/site-packages"
+export ANTHROPIC_API_KEY="sk-ant-..."         # fill in your key
+OPENPIKA_DIR="/path/to/openpika"              # set to your clone location
+export OPENPIKA_PYTHON_PATH="$OPENPIKA_DIR/openpika-python/src:$OPENPIKA_DIR/openpika-python/.venv/lib/python3.12/site-packages"
 EOF
 source ~/.bashrc
 ```
 
-> **Alternative:** simply `source .venv/bin/activate` in your shell before running
-> `openpika` — whichever you find more convenient.
+*Windows (PowerShell):*
+
+```powershell
+$openpika = "C:\path\to\openpika"             # set to your clone location
+$env:OPENPIKA_PYTHON_PATH = "$openpika\openpika-python\src;$openpika\openpika-python\.venv\Lib\site-packages"
+```
+
+> **Simpler alternative:** just activate the venv before running `openpika`. An active venv makes all packages discoverable without setting `OPENPIKA_PYTHON_PATH`.
 
 ---
 
@@ -122,6 +235,7 @@ This is the fastest way to verify everything works end-to-end without starting a
 
 ```bash
 ./target/release/openpika run "What is the current working directory? List its contents."
+# Windows: .\target\release\openpika.exe run "..."
 ```
 
 You should see the agent reply using the `terminal` tool.
@@ -144,6 +258,13 @@ Or with verbose logging to watch requests:
 
 ```bash
 OPENPIKA_LOG_LEVEL=debug ./target/release/openpika serve
+```
+
+*Windows (PowerShell):*
+
+```powershell
+$env:OPENPIKA_LOG_LEVEL = "debug"
+.\target\release\openpika.exe serve
 ```
 
 ### Health check
@@ -214,7 +335,7 @@ All fields can also be set via environment variables with the `OPENPIKA__` prefi
 
 ```bash
 export OPENPIKA__GATEWAY__WEBHOOK_SECRET="my-secret"
-export DATABASE_URL="sqlite:///root/.openpika/state.db"
+export DATABASE_URL="sqlite:///home/youruser/.openpika/state.db"
 ```
 
 ---
@@ -283,27 +404,44 @@ Then run:
 
 ### `Cannot import openpika.entrypoint`
 
-The Python package is not on the path. Make sure:
+The Python package is not on the path. Either activate the venv:
 
 ```bash
-export OPENPIKA_PYTHON_PATH="/root/Projects/agent/openpika/openpika-python/src"
-# AND the venv is active:
-source /root/Projects/agent/openpika/openpika-python/.venv/bin/activate
+source openpika-python/.venv/bin/activate        # Linux / macOS
+openpika-python\.venv\Scripts\Activate.ps1       # Windows
 ```
 
-### `openssl-sys` build fails
+Or set `OPENPIKA_PYTHON_PATH` explicitly (see Step 4).
 
-Install the OpenSSL dev headers:
+### `openssl-sys` build fails (Linux)
+
+Install the OpenSSL development headers:
 
 ```bash
+# Ubuntu / Debian
 sudo apt-get install -y libssl-dev pkg-config
-# Re-run cargo build with:
+
+# Fedora / RHEL
+sudo dnf install -y openssl-devel pkg-config
+```
+
+Then rebuild:
+
+```bash
 OPENSSL_NO_VENDOR=1 cargo build --release
+```
+
+### `openssl-sys` build fails (macOS)
+
+```bash
+brew install openssl
+export OPENSSL_DIR=$(brew --prefix openssl)
+cargo build --release
 ```
 
 ### Agent returns `Error: No API key`
 
-Either export `ANTHROPIC_API_KEY` in your shell or store it via:
+Either export `ANTHROPIC_API_KEY` in your shell (see Step 2) or store it in the OS keychain:
 
 ```bash
 ./target/release/openpika credentials set ANTHROPIC_API_KEY sk-ant-...

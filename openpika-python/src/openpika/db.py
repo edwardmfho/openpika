@@ -127,17 +127,53 @@ _DDL: list[str] = [
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     )""",
+    # 0003 — cron scheduler
+    """CREATE TABLE IF NOT EXISTS cron_jobs (
+        id TEXT PRIMARY KEY NOT NULL,
+        name TEXT NOT NULL,
+        schedule TEXT NOT NULL,
+        prompt TEXT NOT NULL,
+        model TEXT,
+        enabled INTEGER NOT NULL DEFAULT 1,
+        last_run TEXT,
+        next_run TEXT,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_cron_enabled ON cron_jobs(enabled)",
+    # 0004 — self-learning pending skills queue
+    """CREATE TABLE IF NOT EXISTS pending_skills (
+        id TEXT PRIMARY KEY NOT NULL,
+        name TEXT NOT NULL,
+        description TEXT NOT NULL DEFAULT '',
+        prompt_template TEXT NOT NULL DEFAULT '',
+        params_schema TEXT NOT NULL DEFAULT '{}',
+        status TEXT NOT NULL DEFAULT 'pending',
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_pending_skills_status ON pending_skills(status)",
 ]
+
 
 # ---------------------------------------------------------------------------
 # Seed data
 # ---------------------------------------------------------------------------
 
 _BUILTIN_TOOLS: list[dict[str, Any]] = [
-    {"id": "web_search", "name": "Web Search",  "kind": "native", "description": "Search the web using DuckDuckGo", "sort_order": 0},
-    {"id": "read_file",  "name": "Read File",   "kind": "native", "description": "Read a file from the filesystem", "sort_order": 1},
-    {"id": "write_file", "name": "Write File",  "kind": "native", "description": "Write content to a file",         "sort_order": 2},
-    {"id": "terminal",   "name": "Terminal",    "kind": "native", "description": "Execute a shell command",          "sort_order": 3},
+    {"id": "web_search",       "name": "Web Search",        "kind": "native", "description": "Search the web using DuckDuckGo",                                "sort_order": 0},
+    {"id": "read_file",        "name": "Read File",         "kind": "native", "description": "Read a file from the filesystem",                                 "sort_order": 1},
+    {"id": "write_file",       "name": "Write File",        "kind": "native", "description": "Write content to a file",                                          "sort_order": 2},
+    {"id": "terminal",         "name": "Terminal",          "kind": "native", "description": "Execute a shell command",                                           "sort_order": 3},
+    {"id": "execute_code",     "name": "Execute Code",      "kind": "native", "description": "Execute code in Python, JS, Bash, Ruby, or Go",                    "sort_order": 4},
+    {"id": "generate_image",   "name": "Generate Image",    "kind": "native", "description": "Generate an image using a configured image generation API",         "sort_order": 5},
+    {"id": "propose_skill",    "name": "Propose Skill",     "kind": "native", "description": "Propose a reusable skill for the user to review and approve",       "sort_order": 6},
+    {"id": "browser_navigate", "name": "Browser Navigate",  "kind": "native", "description": "Navigate the browser to a URL (requires playwright)",              "sort_order": 7},
+    {"id": "browser_snapshot", "name": "Browser Snapshot",  "kind": "native", "description": "Return current page URL, title, and visible text",                  "sort_order": 8},
+    {"id": "browser_click",    "name": "Browser Click",     "kind": "native", "description": "Click an element on the current page by CSS selector",              "sort_order": 9},
+    {"id": "browser_type",     "name": "Browser Type",      "kind": "native", "description": "Type text into an input element on the current page",               "sort_order": 10},
+    {"id": "browser_extract",  "name": "Browser Extract",   "kind": "native", "description": "Extract text from elements matching a CSS selector",                "sort_order": 11},
+    {"id": "browser_close",    "name": "Browser Close",     "kind": "native", "description": "Close the browser and release all resources",                       "sort_order": 12},
 ]
 
 _BUILTIN_SKILLS: list[dict[str, Any]] = [
@@ -489,3 +525,221 @@ async def delete_skill(skill_id: str) -> bool:
             text("DELETE FROM skills WHERE id = :id AND is_builtin = 0"), {"id": skill_id}
         )
         return result.rowcount > 0
+
+
+# ---------------------------------------------------------------------------
+# Cron jobs CRUD
+# ---------------------------------------------------------------------------
+
+@dataclass
+class CronJob:
+    id: str
+    name: str
+    schedule: str
+    prompt: str
+    model: str | None
+    enabled: bool
+    last_run: str | None
+    next_run: str | None
+    created_at: str
+    updated_at: str
+
+
+def _to_cron_job(row: Any) -> CronJob:
+    d = dict(row._mapping)
+    return CronJob(
+        id=d["id"],
+        name=d["name"],
+        schedule=d["schedule"],
+        prompt=d["prompt"],
+        model=d.get("model"),
+        enabled=bool(d["enabled"]),
+        last_run=d.get("last_run"),
+        next_run=d.get("next_run"),
+        created_at=d.get("created_at", ""),
+        updated_at=d.get("updated_at", ""),
+    )
+
+
+async def list_cron_jobs(enabled_only: bool = False) -> list[CronJob]:
+    q = "SELECT * FROM cron_jobs"
+    if enabled_only:
+        q += " WHERE enabled = 1"
+    q += " ORDER BY created_at ASC"
+    async with session_ctx() as sess:
+        rows = await sess.execute(text(q))
+        return [_to_cron_job(r) for r in rows.fetchall()]
+
+
+async def get_cron_job(job_id: str) -> CronJob | None:
+    async with session_ctx() as sess:
+        row = (await sess.execute(text("SELECT * FROM cron_jobs WHERE id = :id"), {"id": job_id})).fetchone()
+        return _to_cron_job(row) if row else None
+
+
+async def create_cron_job(
+    name: str,
+    schedule: str,
+    prompt: str,
+    model: str | None = None,
+) -> CronJob:
+    """Create a cron job and compute its first next_run from the schedule."""
+    job_id = str(uuid.uuid4())
+    now = _utcnow()
+
+    # Compute next_run using croniter if available
+    next_run: str | None = None
+    try:
+        from croniter import croniter
+        from datetime import datetime, timezone
+        next_dt = croniter(schedule, datetime.now(timezone.utc)).get_next(datetime)
+        next_run = next_dt.isoformat()
+    except Exception:
+        pass
+
+    async with session_ctx() as sess:
+        await sess.execute(
+            text(
+                "INSERT INTO cron_jobs(id, name, schedule, prompt, model, enabled, next_run, created_at, updated_at) "
+                "VALUES (:id, :name, :schedule, :prompt, :model, 1, :next_run, :now, :now)"
+            ),
+            {"id": job_id, "name": name, "schedule": schedule, "prompt": prompt,
+             "model": model, "next_run": next_run, "now": now},
+        )
+    return await get_cron_job(job_id)  # type: ignore[return-value]
+
+
+async def update_cron_job(job_id: str, **fields: Any) -> CronJob | None:
+    allowed = {"name", "schedule", "prompt", "model", "enabled", "last_run", "next_run"}
+    params: dict[str, Any] = {"id": job_id, "now": _utcnow()}
+    clauses: list[str] = []
+    for key, val in fields.items():
+        if key not in allowed:
+            continue
+        if key == "enabled":
+            clauses.append("enabled = :enabled")
+            params["enabled"] = 1 if val else 0
+        else:
+            clauses.append(f"{key} = :{key}")
+            params[key] = val
+    if not clauses:
+        return await get_cron_job(job_id)
+    clauses.append("updated_at = :now")
+    async with session_ctx() as sess:
+        await sess.execute(text(f"UPDATE cron_jobs SET {', '.join(clauses)} WHERE id = :id"), params)
+    return await get_cron_job(job_id)
+
+
+async def delete_cron_job(job_id: str) -> bool:
+    async with session_ctx() as sess:
+        result = await sess.execute(text("DELETE FROM cron_jobs WHERE id = :id"), {"id": job_id})
+        return result.rowcount > 0
+
+
+# ---------------------------------------------------------------------------
+# Pending skills CRUD (self-learning queue)
+# ---------------------------------------------------------------------------
+
+@dataclass
+class PendingSkill:
+    id: str
+    name: str
+    description: str
+    prompt_template: str
+    params_schema: dict[str, Any]
+    status: str  # 'pending', 'approved', 'rejected'
+    created_at: str
+    updated_at: str
+
+
+def _to_pending_skill(row: Any) -> PendingSkill:
+    d = dict(row._mapping)
+    try:
+        schema = json.loads(d.get("params_schema") or "{}")
+    except json.JSONDecodeError:
+        schema = {}
+    return PendingSkill(
+        id=d["id"],
+        name=d["name"],
+        description=d.get("description", ""),
+        prompt_template=d.get("prompt_template", ""),
+        params_schema=schema,
+        status=d.get("status", "pending"),
+        created_at=d.get("created_at", ""),
+        updated_at=d.get("updated_at", ""),
+    )
+
+
+async def list_pending_skills(status: str = "pending") -> list[PendingSkill]:
+    async with session_ctx() as sess:
+        rows = await sess.execute(
+            text("SELECT * FROM pending_skills WHERE status = :status ORDER BY created_at ASC"),
+            {"status": status},
+        )
+        return [_to_pending_skill(r) for r in rows.fetchall()]
+
+
+async def get_pending_skill(skill_id: str) -> PendingSkill | None:
+    async with session_ctx() as sess:
+        row = (await sess.execute(
+            text("SELECT * FROM pending_skills WHERE id = :id"), {"id": skill_id}
+        )).fetchone()
+        return _to_pending_skill(row) if row else None
+
+
+async def create_pending_skill(
+    name: str,
+    description: str,
+    prompt_template: str,
+    params_schema: dict[str, Any] | None = None,
+) -> PendingSkill:
+    skill_id = str(uuid.uuid4())
+    now = _utcnow()
+    async with session_ctx() as sess:
+        await sess.execute(
+            text(
+                "INSERT INTO pending_skills(id, name, description, prompt_template, params_schema, status, created_at, updated_at) "
+                "VALUES (:id, :name, :description, :prompt_template, :params_schema, 'pending', :now, :now)"
+            ),
+            {
+                "id": skill_id, "name": name, "description": description,
+                "prompt_template": prompt_template,
+                "params_schema": json.dumps(params_schema or {}),
+                "now": now,
+            },
+        )
+    return await get_pending_skill(skill_id)  # type: ignore[return-value]
+
+
+async def resolve_pending_skill(skill_id: str, approve: bool) -> bool:
+    """Approve or reject a pending skill.
+
+    Approve: copies the skill to the `skills` table and marks it 'approved'.
+    Reject:  marks it 'rejected' (kept for audit; not shown in normal listing).
+    """
+    pending = await get_pending_skill(skill_id)
+    if pending is None or pending.status != "pending":
+        return False
+
+    now = _utcnow()
+    async with session_ctx() as sess:
+        if approve:
+            new_id = str(uuid.uuid4())
+            await sess.execute(
+                text(
+                    "INSERT INTO skills(id, name, description, icon, prompt_template, params_schema, "
+                    "is_builtin, pinned, sort_order, created_at, updated_at) "
+                    "VALUES (:id, :name, :description, '', :prompt_template, :params_schema, 0, 0, 0, :now, :now)"
+                ),
+                {
+                    "id": new_id, "name": pending.name, "description": pending.description,
+                    "prompt_template": pending.prompt_template,
+                    "params_schema": json.dumps(pending.params_schema),
+                    "now": now,
+                },
+            )
+        await sess.execute(
+            text("UPDATE pending_skills SET status = :status, updated_at = :now WHERE id = :id"),
+            {"status": "approved" if approve else "rejected", "now": now, "id": skill_id},
+        )
+    return True

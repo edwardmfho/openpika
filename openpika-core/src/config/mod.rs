@@ -20,6 +20,10 @@ pub struct AppConfig {
     #[serde(default)]
     pub gateway: GatewayConfig,
 
+    /// Outbound messenger tokens
+    #[serde(default)]
+    pub messenger: MessengerConfig,
+
     /// OIDC / OAuth2 providers
     #[serde(default)]
     pub auth: AuthConfig,
@@ -46,6 +50,17 @@ pub struct GatewayConfig {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
+pub struct MessengerConfig {
+    pub telegram_bot_token: Option<String>,
+    pub discord_bot_token: Option<String>,
+    pub slack_bot_token: Option<String>,
+    /// WhatsApp Business Cloud API access token
+    pub whatsapp_token: Option<String>,
+    /// WhatsApp Business Phone Number ID (from Meta developer console)
+    pub whatsapp_phone_number_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
 pub struct AuthConfig {
     pub okta: Option<OidcProvider>,
     pub azure: Option<OidcProvider>,
@@ -58,6 +73,8 @@ pub struct OidcProvider {
     pub client_secret: Option<String>,  // None → use keyring
     pub issuer_url: String,
     pub redirect_uri: String,
+    /// Expected audience claim in access tokens (required for audience validation).
+    pub audience: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -101,6 +118,7 @@ impl Default for AppConfig {
             python_path: default_python_path(),
             default_model: default_model(),
             gateway: GatewayConfig::default(),
+            messenger: MessengerConfig::default(),
             auth: AuthConfig::default(),
             context: ContextConfig::default(),
             encrypt_at_rest: false,

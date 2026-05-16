@@ -42,6 +42,45 @@ OpenPika is a high-performance agent framework built as a clean replacement for 
 | **pydantic-ai brain** | Clean agent with tool definitions; model-agnostic (Claude, GPT-4, local) |
 | **Distribution** | Alpine Docker image · macOS `.dmg` · Windows `.msi` · multi-arch CI |
 
+## Install
+
+```bash
+# Pure Python — no Rust required
+pip install 'openpika[server]'
+
+# First-time setup
+openpika init
+
+# One-shot task
+openpika run "What tools do you have available?"
+
+# Interactive chat
+openpika chat
+
+# HTTP gateway (same API surface as the Rust binary)
+openpika serve
+```
+
+For the high-performance Rust binary (production), see [QUICKSTART.md](QUICKSTART.md).
+
+## Web UI
+
+```bash
+openpika ui          # starts Chainlit on http://0.0.0.0:8000
+openpika ui --port 9000 --headless   # custom port, no browser auto-open
+```
+
+**Accessing the UI from a remote machine**
+
+If OpenPika is running on a server, use SSH port forwarding — no firewall changes needed:
+
+```bash
+# On your laptop
+ssh -L 8000:localhost:8000 user@your-server-ip
+```
+
+Then open `http://localhost:8000` in your browser. The tunnel stays open as long as the SSH session is active.
+
 ## Quick links
 
 - **First run →** [QUICKSTART.md](QUICKSTART.md)
@@ -114,17 +153,38 @@ openpika db migrate         Run pending database migrations
 
 **Prerequisites:** Rust ≥ 1.80, Python ≥ 3.12, `uv` or `pip`, OpenSSL dev headers.
 
+*Linux (Ubuntu / Debian):*
+
 ```bash
-# Install deps (Ubuntu/Debian)
 sudo apt-get install -y libssl-dev pkg-config python3-dev
-
-# Build the Rust binary
-source ~/.cargo/env        # if using rustup
 PYO3_PYTHON=python3 OPENSSL_NO_VENDOR=1 cargo build --release
+```
 
-# Install the Python package
+*macOS:*
+
+```bash
+brew install openssl pkg-config
+export OPENSSL_DIR=$(brew --prefix openssl)
+PYO3_PYTHON=python3 cargo build --release
+```
+
+*Windows (PowerShell):*
+
+```powershell
+# OpenSSL is vendored automatically on Windows
+$env:PYO3_PYTHON = "python"
+cargo build --release
+```
+
+Install the Python package (all platforms):
+
+```bash
 cd openpika-python
-uv venv .venv && source .venv/bin/activate
+uv venv .venv
+
+source .venv/bin/activate        # Linux / macOS
+# .venv\Scripts\Activate.ps1    # Windows
+
 uv pip install -e .
 ```
 

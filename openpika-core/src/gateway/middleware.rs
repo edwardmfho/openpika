@@ -196,6 +196,9 @@ pub struct AuthenticatedUser {
 
 /// Validate Bearer JWT and inject `AuthenticatedUser` as a request extension.
 /// Returns 401 if Authorization header is missing or token is invalid.
+///
+/// Collects all configured OIDC provider issuer URLs from config, then calls
+/// `validate_jwt` which fetches JWKS and verifies the RS256 signature.
 pub async fn require_auth(
     State(st): State<AppState>,
     mut req: Request,
@@ -211,15 +214,31 @@ pub async fn require_auth(
             (StatusCode::UNAUTHORIZED, "Missing Authorization: Bearer token".into())
         })?;
 
-    // Validate against the configured OIDC provider
-    // For now we delegate to the auth module's validate_jwt helper.
-    // Production: fetch JWKS and verify RS256 signature + exp + iss + aud.
-    let claims = crate::auth::oidc::validate_jwt(
-        &token,
-        "https://placeholder.issuer",  // replaced at runtime from config
-        &st.config.gateway.cors_origins.first().cloned().unwrap_or_default(),
-    )
-    .map_err(|e| (StatusCode::UNAUTHORIZED, format!("Token invalid: {e}")))?;
+    // Build allowed issuer list from all configured OIDC providers
+    let allowed_issuers: Vec<String> = [
+        st.config.auth.okta.as_ref().map(|p| p.issuer_url.clone()),
+        st.config.auth.azure.as_ref().map(|p| p.issuer_url.clone()),
+        st.config.auth.auth0.as_ref().map(|p| p.issuer_url.clone()),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+
+    // Use the first configured audience (providers share the same API audience in most setups)
+    let audience = [
+        st.config.auth.okta.as_ref().and_then(|p| p.audience.as_deref()),
+        st.config.auth.azure.as_ref().and_then(|p| p.audience.as_deref()),
+        st.config.auth.auth0.as_ref().and_then(|p| p.audience.as_deref()),
+    ]
+    .into_iter()
+    .flatten()
+    .next()
+    .unwrap_or("")
+    .to_owned();
+
+    let claims = crate::auth::oidc::validate_jwt(&token, &allowed_issuers, &audience)
+        .await
+        .map_err(|e| (StatusCode::UNAUTHORIZED, format!("Token invalid: {e}")))?;
 
     req.extensions_mut().insert(AuthenticatedUser {
         sub: claims.sub,

@@ -10,6 +10,8 @@ pub fn api_routes() -> Router<AppState> {
         .route("/v1/sessions", get(handlers::list_sessions))
         .route("/v1/sessions/{id}", get(handlers::get_session))
         .route("/v1/sessions/{id}/messages", get(handlers::get_messages))
+        // AG-UI protocol — SSE event stream for any AG-UI-compatible frontend
+        .route("/v1/awp/run", post(handlers::agui_run))
 }
 
 /// Webhook routes — HMAC signature verification is applied in gateway::serve()

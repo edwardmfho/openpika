@@ -64,7 +64,7 @@ async def _invoke_async(
             prompt,
             message_history=history,
         )
-        return result.data
+        return result.output
     except Exception as exc:
         logger.exception("Agent run failed for session %s", session_id)
         return f"Error: {exc}"
@@ -101,3 +101,46 @@ def _build_history(messages: list[dict]):
         # Skip system messages — they are set on the Agent directly
 
     return history
+
+
+# ---------------------------------------------------------------------------
+# AG-UI entry point (called by Rust PyO3 bridge for /v1/awp/run)
+# ---------------------------------------------------------------------------
+
+def agui_run_events(body_json: str, config_json: str) -> str:
+    """Synchronous wrapper called by the Rust PyO3 bridge for AG-UI runs.
+
+    Runs the agent against the AG-UI RunAgentInput, collects every SSE event
+    the adapter emits, and returns them as a single concatenated string.
+    The Rust handler splits on double-newlines and re-streams them to the client.
+
+    Args:
+        body_json:   JSON-serialised RunAgentInput from the HTTP request body.
+        config_json: JSON-serialised AppConfig from Rust.
+
+    Returns:
+        All SSE event chunks concatenated ("data: {...}\\n\\ndata: {...}\\n\\n…").
+    """
+    return asyncio.run(_agui_run_events_async(body_json, config_json))
+
+
+async def _agui_run_events_async(body_json: str, config_json: str) -> str:
+    from ag_ui.core.types import RunAgentInput
+    from pydantic_ai.ui.ag_ui import AGUIAdapter
+
+    body = json.loads(body_json)
+    cfg = json.loads(config_json)
+
+    run_input = RunAgentInput.model_validate(body)
+
+    model_id: str = cfg.get("default_model", "anthropic:claude-sonnet-4-6")
+    if ":" not in model_id:
+        model_id = f"anthropic:{model_id}"
+
+    agent = get_agent(model_id)
+    async with agent:
+        adapter = AGUIAdapter(agent=agent, run_input=run_input, accept="text/event-stream")
+        chunks: list[str] = []
+        async for chunk in adapter.encode_stream(adapter.run_stream()):
+            chunks.append(chunk)
+    return "".join(chunks)

@@ -9,10 +9,19 @@ import openpika.tools as _native
 
 # Maps tool_config.id → Python function in tools.py
 NATIVE_FN_MAP: dict[str, Callable[..., Any]] = {
-    "web_search": _native.web_search,
-    "read_file":  _native.read_file,
-    "write_file": _native.write_file,
-    "terminal":   _native.terminal,
+    "web_search":       _native.web_search,
+    "read_file":        _native.read_file,
+    "write_file":       _native.write_file,
+    "terminal":         _native.terminal,
+    "execute_code":     _native.execute_code,
+    "generate_image":   _native.generate_image,
+    "propose_skill":    _native.propose_skill,
+    "browser_navigate": _native.browser_navigate,
+    "browser_snapshot": _native.browser_snapshot,
+    "browser_click":    _native.browser_click,
+    "browser_type":     _native.browser_type,
+    "browser_extract":  _native.browser_extract,
+    "browser_close":    _native.browser_close,
 }
 
 try:

@@ -55,7 +55,18 @@ from openpika.config import config
 async def lifespan(app: FastAPI):
     from openpika.db import init_db
     await init_db()
+
+    # Start background cron scheduler
+    from openpika.scheduler import run_scheduler
+    _scheduler_task = asyncio.create_task(run_scheduler(config.model))
+
     yield
+
+    _scheduler_task.cancel()
+    try:
+        await _scheduler_task
+    except asyncio.CancelledError:
+        pass
 
 
 app = FastAPI(title="OpenPika Gateway", version="0.1.0", lifespan=lifespan)
@@ -77,6 +88,106 @@ async def health() -> dict[str, str]:
 @app.get("/ready")
 async def ready() -> dict[str, str]:
     return {"status": "ready"}
+
+
+@app.get("/v1/config")
+async def get_config() -> dict[str, Any]:
+    return {
+        "model": config.model,
+        "max_tokens": config.max_tokens,
+        "raw_turns": config.raw_turns,
+        "gateway_host": config.gateway_host,
+        "gateway_port": config.gateway_port,
+    }
+
+
+@app.get("/v1/setup-status")
+async def setup_status() -> dict[str, Any]:
+    from openpika.config import _PROVIDER_KEY
+    provider = config.model.split(":")[0] if ":" in config.model else "anthropic"
+    env_var = _PROVIDER_KEY.get(provider, "ANTHROPIC_API_KEY")
+    key = config.api_key_for_provider(provider)
+    return {
+        "ready": bool(key),
+        "model": config.model,
+        "provider": provider,
+        "env_var": env_var,
+    }
+
+
+@app.post("/v1/setup")
+async def save_setup(request: Request) -> dict[str, Any]:
+    body = await request.json()
+    model: str = body.get("model", "").strip()
+    api_key: str = body.get("api_key", "").strip()
+    if not model or not api_key:
+        raise HTTPException(status_code=400, detail="model and api_key are required")
+
+    import os as _os
+    from openpika.config import _PROVIDER_KEY, ENV_FILE, CONFIG_DIR, save
+
+    provider = model.split(":")[0] if ":" in model else "anthropic"
+    env_var = _PROVIDER_KEY.get(provider, "ANTHROPIC_API_KEY")
+
+    updates: dict = {"model": model}
+    if provider == "anthropic":
+        updates["api_key"] = api_key
+    else:
+        CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+        existing = ENV_FILE.read_text() if ENV_FILE.exists() else ""
+        lines = [l for l in existing.splitlines(keepends=True) if not l.startswith(f"{env_var}=")]
+        lines.append(f'{env_var}="{api_key}"\n')
+        ENV_FILE.write_text("".join(lines))
+
+    save(updates)
+    _os.environ[env_var] = api_key
+    # Re-init so alias logic re-runs (e.g. GEMINI_API_KEY → GOOGLE_API_KEY)
+    config.__init__()  # type: ignore[misc]
+
+    return {"ok": True, "model": model, "provider": provider}
+
+
+# ---------------------------------------------------------------------------
+# AG-UI protocol — /v1/awp/run
+# ---------------------------------------------------------------------------
+
+@app.post("/v1/awp/run")
+async def agui_run(request: Request):
+    """AG-UI protocol endpoint.
+
+    Accepts a RunAgentInput JSON body and returns a text/event-stream SSE
+    response of AG-UI events.  Any AG-UI-compatible frontend (CopilotKit,
+    custom React hooks, etc.) can connect here directly.
+
+    Transport: HTTP POST → text/event-stream (SSE).
+    Protocol:  https://docs.ag-ui.com/introduction
+    """
+    try:
+        from pydantic_ai.ui.ag_ui import AGUIAdapter
+    except ImportError:
+        raise HTTPException(
+            status_code=501,
+            detail=(
+                "ag-ui-protocol is not installed. "
+                "Run: pip install 'openpika[agui]'"
+            ),
+        )
+
+    # Eagerly read body so it's cached — AGUIAdapter.dispatch_request() will
+    # re-read it from the same cache via request.body().
+    body_bytes = await request.body()
+    try:
+        body_data = json.loads(body_bytes) if body_bytes else {}
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="Invalid JSON body")
+
+    session_id: str = body_data.get("threadId", str(uuid.uuid4()))
+    model_id: str = body_data.get("model", config.model)
+
+    from openpika.agent import make_agent
+    agent, _ = await make_agent(model_id, session_id)
+    async with agent:
+        return await AGUIAdapter.dispatch_request(request, agent=agent)
 
 
 # ---------------------------------------------------------------------------
@@ -291,6 +402,81 @@ async def delete_skill_endpoint(skill_id: str) -> dict[str, Any]:
     if not ok:
         raise HTTPException(status_code=400, detail="Cannot delete built-in skill, or skill not found.")
     return {"deleted": skill_id}
+
+
+# ---------------------------------------------------------------------------
+# Pending skills (self-learning queue)
+# ---------------------------------------------------------------------------
+
+@app.get("/v1/skills/pending")
+async def list_pending_skills_endpoint(status: str = "pending") -> dict[str, Any]:
+    from openpika.db import list_pending_skills
+    skills = await list_pending_skills(status=status)
+    return {"pending_skills": [dataclasses.asdict(s) for s in skills]}
+
+
+@app.post("/v1/skills/pending/{skill_id}/approve")
+async def approve_pending_skill(skill_id: str) -> dict[str, Any]:
+    from openpika.db import resolve_pending_skill
+    ok = await resolve_pending_skill(skill_id, approve=True)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Pending skill not found or already resolved.")
+    return {"approved": skill_id}
+
+
+@app.post("/v1/skills/pending/{skill_id}/reject")
+async def reject_pending_skill(skill_id: str) -> dict[str, Any]:
+    from openpika.db import resolve_pending_skill
+    ok = await resolve_pending_skill(skill_id, approve=False)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Pending skill not found or already resolved.")
+    return {"rejected": skill_id}
+
+
+# ---------------------------------------------------------------------------
+# Cron scheduler
+# ---------------------------------------------------------------------------
+
+@app.get("/v1/cron")
+async def list_cron_jobs_endpoint() -> dict[str, Any]:
+    from openpika.db import list_cron_jobs
+    jobs = await list_cron_jobs()
+    return {"cron_jobs": [dataclasses.asdict(j) for j in jobs]}
+
+
+@app.post("/v1/cron")
+async def create_cron_job_endpoint(request: Request) -> dict[str, Any]:
+    body = await request.json()
+    from openpika.db import create_cron_job
+    try:
+        job = await create_cron_job(
+            name=body["name"],
+            schedule=body["schedule"],
+            prompt=body["prompt"],
+            model=body.get("model"),
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=400, detail=f"Missing required field: {exc}")
+    return dataclasses.asdict(job)
+
+
+@app.patch("/v1/cron/{job_id}")
+async def update_cron_job_endpoint(job_id: str, request: Request) -> dict[str, Any]:
+    body = await request.json()
+    from openpika.db import update_cron_job
+    job = await update_cron_job(job_id, **body)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Cron job not found")
+    return dataclasses.asdict(job)
+
+
+@app.delete("/v1/cron/{job_id}")
+async def delete_cron_job_endpoint(job_id: str) -> dict[str, Any]:
+    from openpika.db import delete_cron_job
+    ok = await delete_cron_job(job_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Cron job not found")
+    return {"deleted": job_id}
 
 
 # ---------------------------------------------------------------------------

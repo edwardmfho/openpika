@@ -1,4 +1,5 @@
 pub mod handlers;
+pub mod messenger;
 pub mod middleware;
 pub mod routes;
 

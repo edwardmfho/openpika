@@ -54,6 +54,30 @@ pub async fn invoke_agent(
     Ok(reply)
 }
 
+/// Run the AG-UI protocol handler and return all SSE event chunks concatenated.
+///
+/// The Python side runs the pydantic-ai agent through `AGUIAdapter`, collects
+/// every encoded SSE chunk, and returns them as one string. The Rust handler
+/// then splits on `\n\n` and re-streams the events to the HTTP client.
+pub async fn agui_run_events(body_json: &str, config: &AppConfig) -> Result<String> {
+    let body_json = body_json.to_owned();
+    let config_json = serde_json::to_string(config).context("serialize config")?;
+
+    tokio::task::spawn_blocking(move || -> Result<String> {
+        Python::with_gil(|py| {
+            let module = import_agent_module(py)?;
+            let result = module
+                .call_method1("agui_run_events", (body_json.as_str(), config_json.as_str()))
+                .context("Python agui_run_events raised an exception")?;
+            result
+                .extract::<String>()
+                .context("agui_run_events did not return a str")
+        })
+    })
+    .await
+    .context("spawn_blocking panicked")?
+}
+
 /// Run a one-shot task string through the pydantic-ai agent.
 pub async fn run_task(task: &str, pool: &Pool, config: &AppConfig) -> Result<()> {
     let messages = vec![serde_json::json!({"role": "user", "content": task})];

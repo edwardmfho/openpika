@@ -1,17 +1,72 @@
-use super::AppState;
+use super::{messenger, AppState};
 use crate::{
     db::{models::Session, queries},
     python,
     tokenizer,
 };
 use axum::{
+    body::Bytes,
     extract::{Path, State},
     http::StatusCode,
-    response::IntoResponse,
+    response::{
+        sse::{Event as SseEvent, KeepAlive, Sse},
+        IntoResponse,
+    },
     Json,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use std::convert::Infallible;
+use tokio_stream::iter as stream_iter;
+
+// ─── AG-UI Protocol ──────────────────────────────────────────────────────────
+
+/// POST /v1/awp/run — AG-UI protocol SSE endpoint.
+///
+/// Accepts a `RunAgentInput` JSON body, calls the Python `agui_run_events`
+/// entrypoint which runs the pydantic-ai agent through `AGUIAdapter` and
+/// collects all SSE-encoded event chunks, then re-streams them to the client
+/// as a `text/event-stream` response.
+///
+/// Note: the Python side buffers the full run before returning, so events
+/// arrive in one burst rather than incrementally. For true token-by-token
+/// streaming use the Python FastAPI gateway (`openpika serve --python`).
+pub async fn agui_run(
+    State(st): State<AppState>,
+    body: Bytes,
+) -> impl IntoResponse {
+    let body_str = String::from_utf8_lossy(&body).to_string();
+
+    let blob = match python::agui_run_events(&body_str, &st.config).await {
+        Ok(b) => b,
+        Err(e) => {
+            tracing::error!("agui_run_events failed: {e}");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": e.to_string()})),
+            )
+                .into_response();
+        }
+    };
+
+    // blob = "data: {...}\n\ndata: {...}\n\n..."
+    // Split into individual SSE data payloads and re-emit each as an event.
+    let events: Vec<Result<SseEvent, Infallible>> = blob
+        .split("\n\n")
+        .filter(|s| !s.trim().is_empty())
+        .map(|chunk| {
+            let data = chunk
+                .lines()
+                .find_map(|l| l.strip_prefix("data: "))
+                .unwrap_or(chunk.trim());
+            Ok(SseEvent::default().data(data.to_owned()))
+        })
+        .collect();
+
+    Sse::new(stream_iter(events))
+        .keep_alive(KeepAlive::default())
+        .into_response()
+}
 
 // ─── Health ───────────────────────────────────────────────────────────────────
 
@@ -183,10 +238,6 @@ pub async fn inbound_webhook(
 ) -> impl IntoResponse {
     tracing::info!(platform = %platform, "Inbound webhook received");
 
-    // Validate HMAC signature when webhook_secret is configured
-    // (Full HMAC check delegated to middleware::WebhookVerify)
-
-    // Deserialize platform-specific envelope in Rust before passing to Python
     let task = match extract_task_from_webhook(&platform, &payload.body) {
         Ok(t) => t,
         Err(e) => {
@@ -197,19 +248,29 @@ pub async fn inbound_webhook(
         }
     };
 
+    // Extract reply destination before the body is moved into the spawned task
+    let reply_target = messenger::extract_reply_target(&platform, &payload.body);
+
     let session = Session::new(platform.clone(), st.config.default_model.clone());
     if let Err(e) = queries::insert_session(&st.db, &session).await {
         tracing::error!("Failed to persist session: {e}");
     }
 
-    // Fire-and-forget: dispatch to Python brain asynchronously
+    // Fire-and-forget: run agent then send reply back to the originating platform
     let db  = st.db.clone();
     let cfg = st.config.clone();
     let sid = session.id.clone();
     tokio::spawn(async move {
         let messages = vec![json!({"role": "user", "content": task})];
-        if let Err(e) = python::invoke_agent(&sid, &messages, &cfg.default_model, &db, &cfg).await {
-            tracing::error!(session_id = %sid, "Agent error: {e}");
+        match python::invoke_agent(&sid, &messages, &cfg.default_model, &db, &cfg).await {
+            Ok(reply) => {
+                if let Err(e) = messenger::send_reply(&reply_target, &reply, &cfg).await {
+                    tracing::warn!(session_id = %sid, "Messenger reply failed: {e}");
+                }
+            }
+            Err(e) => {
+                tracing::error!(session_id = %sid, "Agent error: {e}");
+            }
         }
     });
 
@@ -240,8 +301,14 @@ fn extract_task_from_webhook(platform: &str, body: &Value) -> anyhow::Result<Str
                 .ok_or_else(|| anyhow::anyhow!("No event.text field in Slack payload"))?;
             Ok(text.to_owned())
         }
+        "whatsapp" => {
+            let text = body
+                .pointer("/entry/0/changes/0/value/messages/0/text/body")
+                .and_then(Value::as_str)
+                .ok_or_else(|| anyhow::anyhow!("No message body in WhatsApp payload"))?;
+            Ok(text.to_owned())
+        }
         _ => {
-            // Generic fallback — try common field names
             ["text", "message", "content", "body", "query"]
                 .iter()
                 .find_map(|k| body.get(k).and_then(Value::as_str))

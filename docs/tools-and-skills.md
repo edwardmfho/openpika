@@ -1,299 +1,313 @@
-# Tools & Skills
+# OpenPika — Tool Use & Skill Use
 
-OpenPika has two ways to extend what the agent can do:
-
-- **Tools** — executable capabilities (functions or external servers) the LLM can call mid-conversation
-- **Skills** — prompt templates users can invoke from the UI without typing a full instruction
-
-Both are persisted in the database and manageable at runtime via the REST API.
+> Reference for developers and end-users on how tools and skills work inside OpenPika, how they are dispatched through the AG-UI event protocol, and how to add your own.
 
 ---
 
-## Tools
+## 1. Tool Use
 
-### Concepts
+Tools are executable functions that the agent can call during a conversation to interact with the outside world. They are defined on the **server side** and run inside the OpenPika Python brain (pydantic-ai).
 
-| Kind | What it is | Configured by |
-|---|---|---|
-| `native` | Python function built into `tools.py` | Seeded at startup — enable/disable only |
-| `mcp_stdio` | External MCP server launched as a subprocess | API / UI |
-| `mcp_http` | External MCP server reached over HTTP/SSE | API / UI |
+### 1.1 Built-in Tools
 
-### Built-in native tools
+| Tool | Trigger phrase | Description |
+|------|---------------|-------------|
+| `web_search` | Search, look up, find | DuckDuckGo Instant Answer; configurable `max_results` (default 5) |
+| `read_file` | Read, open, show file | Reads a path; supports `~/`, relative, and absolute |
+| `write_file` | Write, save, create file | Writes content; auto-creates parent directories |
+| `terminal` | Run, execute, shell | Executes shell commands; 30-second timeout; returns stdout + stderr + exit code |
 
-| ID | Name | What it does |
-|---|---|---|
-| `web_search` | Web Search | DuckDuckGo search, returns top N results |
-| `read_file` | Read File | Read any file from the filesystem |
-| `write_file` | Write File | Write / overwrite a file |
-| `terminal` | Terminal | Execute a shell command (30 s timeout) |
+### 1.2 Tool Lifecycle & AG-UI Events
 
-Native tools are seeded automatically on first `init_db()`. They cannot be created or deleted via the API — only enabled or disabled.
+Every tool invocation emits a sequence of AG-UI protocol events that the UI consumes:
 
-### Enabling / disabling a tool globally
-
-```bash
-# Disable the terminal tool for all sessions
-curl -X PATCH http://localhost:8080/v1/tools/terminal \
-  -H 'Content-Type: application/json' \
-  -d '{"enabled": false}'
+```
+TOOL_CALL_START        ← agent decides to call a tool
+  TOOL_CALL_ARGS_DELTA ← arguments stream in (partial JSON)
+  TOOL_CALL_ARGS_DELTA ← …
+TOOL_CALL_END          ← all arguments received
+  (human approval gate if configured)
+TOOL_CALL_RESULT       ← tool result arrives (success or error)
 ```
 
-### Registering an MCP stdio server
+The UI renders a **collapsible ToolCallCard** inline in the message thread for each tool call, showing:
+- Tool name + status badge (`running`, `completed`, `error`, `pending_approval`)
+- Arguments (streaming as `TOOL_CALL_ARGS_DELTA` events arrive)
+- Result with tool-specific rendering (see §1.4)
 
-```bash
-curl -X POST http://localhost:8080/v1/tools \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "name": "Filesystem MCP",
-    "kind": "mcp_stdio",
-    "description": "Browse and edit files via MCP",
-    "config": {
-      "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/home/user/projects"],
-      "env": {},
-      "cwd": null
-    }
-  }'
+### 1.3 Human-in-the-Loop (HITL) Approval
+
+Some tools require the user to approve before execution. This is controlled per-tool in **Settings → Context Tuning → Approval-required tools**.
+
+Default approval-required tools: `write_file`, `terminal`
+
+**Flow:**
+
+```
+TOOL_CALL_START
+  ↓ UI shows approval card  (status: pending_approval)
+  ↓ User clicks Approve or Reject
+Approve → tool runs → TOOL_CALL_RESULT
+Reject  → tool is skipped; agent notified
 ```
 
-### Registering an MCP HTTP/SSE server
-
-```bash
-curl -X POST http://localhost:8080/v1/tools \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "name": "My Remote MCP",
-    "kind": "mcp_http",
-    "description": "Company internal MCP server",
-    "config": {
-      "url": "http://mcp.internal:8090/sse",
-      "headers": {"Authorization": "Bearer <token>"}
-    }
-  }'
-```
-
-### Per-session tool overrides
-
-A session can flip any tool on or off independently of the global setting. This is what the UI's tool toggle panel writes.
-
-```bash
-# Disable web_search just for session abc-123
-curl -X PUT http://localhost:8080/v1/sessions/abc-123/tools/web_search \
-  -H 'Content-Type: application/json' \
-  -d '{"enabled": false}'
-
-# Revert to global default
-curl -X DELETE http://localhost:8080/v1/sessions/abc-123/tools/web_search
-```
-
-### Tool REST API reference
-
-| Method | Path | Description |
-|---|---|---|
-| `GET` | `/v1/tools` | List all tool configs (native + MCP) |
-| `POST` | `/v1/tools` | Register a new MCP tool |
-| `PATCH` | `/v1/tools/{id}` | Update name, description, enabled, config |
-| `DELETE` | `/v1/tools/{id}` | Delete an MCP tool (native: 400) |
-| `GET` | `/v1/sessions/{id}/tools/{tool_id}` | Get effective state for a session |
-| `PUT` | `/v1/sessions/{id}/tools/{tool_id}` | Set session override `{"enabled": bool}` |
-| `DELETE` | `/v1/sessions/{id}/tools/{tool_id}` | Clear session override |
-
-### `tool_configs` schema
-
+The approval/rejection is sent back via a **Custom AG-UI event**:
 ```json
 {
-  "id":          "web_search",
-  "name":        "Web Search",
-  "kind":        "native",
-  "description": "Search the web using DuckDuckGo",
-  "config":      {},
-  "enabled":     true,
-  "sort_order":  0
-}
-```
-
-**`config` for `mcp_stdio`:**
-```json
-{
-  "command": "npx",
-  "args":    ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"],
-  "env":     {"MY_VAR": "value"},
-  "cwd":     "/optional/working/dir"
-}
-```
-
-**`config` for `mcp_http`:**
-```json
-{
-  "url":     "http://localhost:8090/sse",
-  "headers": {"Authorization": "Bearer token"}
-}
-```
-
-### How it wires into the agent
-
-At request time, `registry.get_tools_for_session(session_id)` queries the DB, applies session overrides, and returns two lists:
-
-- **`native_tools`** — `pydantic_ai.tools.Tool` objects wrapping the Python functions
-- **`mcp_servers`** — `MCPServerStdio` / `MCPServerHTTP` objects passed as `toolsets=` to the `Agent`
-
-MCP servers are started via `async with agent:` (pydantic-ai 1.96+) and shut down when the context exits. No server is started if the session has no enabled MCP tools.
-
----
-
-## Skills
-
-### Concepts
-
-A skill is a **named prompt template** with an optional parameter form. Users invoke them from the UI via a slash-command (`/summarise`, `/draft_email`, …). The agent receives the rendered template as its user message and responds normally, streaming back through the chat thread.
-
-Skills are purely a UX layer — they produce a prompt, not code. The agent uses whichever tools are enabled for that session alongside the skill.
-
-### Built-in skills
-
-| ID | Name | Icon | Parameters |
-|---|---|---|---|
-| `summarise` | Summarise | 📝 | `text` |
-| `draft_email` | Draft Email | ✉️ | `subject`, `context`, `tone` |
-| `explain_code` | Explain Code | 💻 | `code`, `language` |
-| `search_web` | Search Web | 🔍 | `query` |
-| `write_file_skill` | Write File | 📁 | `path`, `content` |
-
-Built-in skills cannot be deleted, but their `prompt_template`, `icon`, `pinned`, and `sort_order` can be updated.
-
-### `prompt_template` syntax
-
-Templates use `{{param_name}}` placeholders. The UI renders a form based on `params_schema`, collects values, substitutes them, and sends the result to the agent.
-
-```
-Please summarise the following text concisely:
-
-{{text}}
-```
-
-### `params_schema` format
-
-Each key is a parameter name; the value describes how the UI should render the input field:
-
-```json
-{
-  "text": {
-    "type":      "string",
-    "label":     "Text to summarise",
-    "required":  true,
-    "multiline": true
-  },
-  "tone": {
-    "type":    "string",
-    "label":   "Tone",
-    "default": "professional"
+  "type": "CUSTOM",
+  "name": "tool_approval",
+  "payload": {
+    "tool_call_id": "call_abc123",
+    "decision": "approve"
   }
 }
 ```
 
-Supported field properties:
+### 1.4 Tool-Specific UI Rendering
 
-| Property | Type | Description |
-|---|---|---|
-| `type` | `"string"` | Field type (only `string` for now) |
-| `label` | string | Display label shown in the UI form |
-| `required` | bool | Whether the field must be filled |
-| `multiline` | bool | Render as a textarea instead of single-line input |
-| `default` | string | Pre-filled value |
+| Tool | UI Component | Notes |
+|------|-------------|-------|
+| `terminal` | `TerminalRenderer` | Monospace block with ANSI colour stripping |
+| `read_file` / `write_file` | `FileRenderer` | Syntax-highlighted code viewer (Prism), language auto-detected from extension |
+| `web_search` | `WebSearchRenderer` | Card list — title + snippet + clickable URL |
+| All others | Raw JSON | Args + result in a `<pre>` block |
 
-### Creating a custom skill
+### 1.5 Adding a Custom Tool
 
-```bash
-curl -X POST http://localhost:8080/v1/skills \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "name": "Code Review",
-    "icon": "🔎",
-    "description": "Review a code snippet for bugs and style",
-    "prompt_template": "Review the following {{language}} code for bugs, security issues, and style:\n\n```{{language}}\n{{code}}\n```\n\nFocus: {{focus}}",
-    "params_schema": {
-      "code":     {"type": "string", "label": "Code to review", "required": true, "multiline": true},
-      "language": {"type": "string", "label": "Language", "default": "python"},
-      "focus":    {"type": "string", "label": "What to focus on", "default": "bugs and security"}
-    },
-    "pinned": false,
-    "sort_order": 10
-  }'
+**Python side** (`openpika-python/src/openpika/tools/`):
+
+```python
+from pydantic_ai import Agent
+
+agent = Agent(model="anthropic:claude-sonnet-4-6")
+
+@agent.tool
+async def my_tool(ctx, param: str) -> str:
+    """Short description — the agent reads this to decide when to call it."""
+    result = await do_something(param)
+    return result
 ```
 
-### Pinning a skill
+**UI side** — register a custom renderer in `ToolCallCard.tsx`:
 
-Pinned skills appear in a quick-access toolbar in the UI (UI requirement 2.5).
+```tsx
+// src/components/tools/ToolCallCard.tsx
+const TOOL_ICONS = {
+  my_tool: MyIcon,
+  // ...
+};
 
-```bash
-curl -X PATCH http://localhost:8080/v1/skills/summarise \
-  -H 'Content-Type: application/json' \
-  -d '{"pinned": true}'
-```
-
-### Skills REST API reference
-
-| Method | Path | Description |
-|---|---|---|
-| `GET` | `/v1/skills` | List all skills (built-in + custom), sorted by `sort_order` |
-| `POST` | `/v1/skills` | Create a custom skill |
-| `PATCH` | `/v1/skills/{id}` | Update name, description, icon, prompt_template, params_schema, pinned, sort_order |
-| `DELETE` | `/v1/skills/{id}` | Delete a custom skill (built-ins: 400) |
-
-### `skills` schema
-
-```json
-{
-  "id":              "summarise",
-  "name":            "Summarise",
-  "description":     "Condense a block of text into key points",
-  "icon":            "📝",
-  "prompt_template": "Please summarise the following text concisely:\n\n{{text}}",
-  "params_schema":   {"text": {"type": "string", "label": "Text to summarise", "required": true, "multiline": true}},
-  "is_builtin":      true,
-  "pinned":          false,
-  "sort_order":      0
+// In ResultDisplay, add a case:
+if (toolName === "my_tool") {
+  return <MyToolRenderer result={result} />;
 }
 ```
 
----
+**Approval** — add the tool name to the approval list in Settings or the config default:
 
-## How the UI invokes a skill (AG-UI flow)
-
-1. User types `/summarise` — UI shows the slash-command picker
-2. User fills the parameter form and hits Send
-3. UI renders the template with the filled params and sends it as a normal user message (or as a `Custom` AG-UI event with `{"type": "skill_invoke", "skill_id": "summarise", "params": {...}}`)
-4. Agent receives the rendered prompt and responds normally
-5. The response streams back through the chat thread as `TextMessageContent` events
-
-The skill itself does not change the agent's tool availability — whatever tools are enabled for the session are still available.
+```ts
+// src/store/store.ts  DEFAULT_SETTINGS
+approvalRequiredTools: ["write_file", "terminal", "my_tool"]
+```
 
 ---
 
-## Adding a new native tool (code path)
+## 2. Skill Use
 
-If you want a new Python function available as a tool (not via MCP), add it to `tools.py` and insert a seed row in `db.py`:
+Skills are **pre-built prompt templates** the user can invoke with a slash command (`/skill_id`) or from the pinned toolbar. They run as regular chat messages — the skill template is expanded into a system-prompt injection before the message reaches the model.
 
-**`tools.py`:**
-```python
-async def fetch_url(ctx: RunContext[dict], url: Annotated[str, "URL to fetch"]) -> str:
-    """Fetch the content of a URL via HTTP GET."""
-    import httpx
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(url, follow_redirects=True, timeout=15)
-        return resp.text[:8000]
+### 2.1 Built-in Skills
+
+| Skill ID | Name | Description |
+|----------|------|-------------|
+| `research` | Research | Deep dive into a topic using web search and synthesis |
+| `summarize` | Summarize | Condense long text or files into key bullet points |
+| `draft_email` | Draft Email | Write a professional email on a given topic |
+| `explain_code` | Explain Code | Analyze and explain a piece of code clearly |
+| `write_file` | Write File | Create or update a file with given content |
+| `search_web` | Search Web | Search the web for current information |
+| `translate` | Translate | Translate text between languages |
+| `code_review` | Code Review | Review code for bugs and style issues |
+
+### 2.2 Skill Invocation — Three Ways
+
+**1. Slash command** — type `/` in the composer:
+
+```
+/research latest transformer architectures
+/summarize <paste long text here>
+/draft_email meeting reschedule
 ```
 
-**`db.py` — `_BUILTIN_TOOLS`:**
-```python
-{"id": "fetch_url", "name": "Fetch URL", "kind": "native",
- "description": "Fetch the content of a URL", "sort_order": 4},
+The skill picker opens as you type, filtered to matching skill IDs. Use `↑↓` to navigate, `Enter` to select.
+
+**2. Pinned toolbar** — click any pinned chip above the composer input.
+
+**3. Welcome screen** — click a skill card on the empty-session welcome screen.
+
+### 2.3 AG-UI Dispatch
+
+When a skill is invoked, a `Custom` AG-UI event is sent alongside the user message:
+
+```json
+{
+  "type": "CUSTOM",
+  "name": "skill_invoke",
+  "payload": {
+    "skill_id": "research",
+    "params": "latest transformer architectures"
+  }
+}
 ```
 
-**`registry.py` — `NATIVE_FN_MAP`:**
-```python
-"fetch_url": _native.fetch_url,
+The backend reads this event, looks up the skill's system prompt template, and prepends it before calling the model.
+
+### 2.4 Full Skill Flow
+
+```
+User types "/research quantum computing"
+  │
+  ├─ SkillPicker filters → highlights "research"
+  ├─ Enter → input set to "/research quantum computing"
+  └─ Send pressed
+        │
+        ├─ CUSTOM(skill_invoke) event queued
+        ├─ User message added to thread
+        └─ POST /api/chat with:
+              messages: [...history, { role: "user", content: "..." }]
+              custom_events: [{ name: "skill_invoke", payload: {...} }]
+                    │
+                    ↓ OpenPika backend
+                    ├─ skill template loaded
+                    ├─ system prompt injected
+                    └─ agent runs → SSE stream:
+                          TEXT_MESSAGE_START
+                          TEXT_MESSAGE_CONTENT  ← tokens stream
+                          TOOL_CALL_START       ← if web_search used
+                          ...
+                          TEXT_MESSAGE_END
+                          RUN_FINISHED
 ```
 
-The tool will be seeded on next `init_db()` and available immediately.
+### 2.5 Pinning Skills
+
+In the slash-command picker, each skill shows a **pin icon** (★) on hover. Click it to pin the skill to the toolbar above the input. Pinned skills persist in local settings across sessions.
+
+- Toggle pin: `useAppStore().togglePinSkill(id)`
+- Default pinned: `research`, `summarize`
+
+### 2.6 Defining a Server-Side Skill
+
+Skills are served from `GET /v1/skills`. Each skill entry:
+
+```json
+{
+  "id": "research",
+  "name": "Research",
+  "description": "Deep dive into a topic using web search and synthesis.",
+  "icon": "Search",
+  "system_prompt": "You are a research assistant. Use web_search to find accurate, up-to-date information. Synthesize results into a clear summary with citations.",
+  "params": [
+    { "name": "topic", "label": "Topic", "type": "text", "required": true }
+  ]
+}
+```
+
+To add a skill, append to `config.toml`:
+
+```toml
+[[skills]]
+id            = "my_skill"
+name          = "My Skill"
+description   = "Does something awesome."
+icon          = "Zap"
+system_prompt = "You are a specialist in X. Always verify facts with web_search."
+```
+
+Or POST to `/v1/skills` (admin only).
+
+### 2.7 Skill Parameter Forms
+
+Skills with `params` defined will show a form modal in the UI before dispatch *(coming in v1.1)*. Currently, free-text params are appended to the slash command:
+
+```
+/draft_email project status update for the CTO
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+                    Becomes the "topic" param
+```
+
+---
+
+## 3. Protocol Reference
+
+### Full AG-UI Run Sequence
+
+```
+RUN_STARTED          { threadId, runId }
+
+# Optional: agent reasoning (shown as collapsible block)
+REASONING_START      { messageId }
+REASONING_CONTENT    { messageId, delta }
+REASONING_END        { messageId }
+
+# Optional: step-by-step progress tracker
+STEP_STARTED         { stepId, label, index, total }
+STEP_FINISHED        { stepId, status: "success"|"error"|"skipped" }
+
+# Tool call (repeats per tool invocation)
+TOOL_CALL_START      { toolCallId, toolName, parentMessageId }
+TOOL_CALL_ARGS_DELTA { toolCallId, delta }   ← streaming JSON args
+TOOL_CALL_END        { toolCallId }
+TOOL_CALL_RESULT     { toolCallId, result, isError? }
+
+# Text response
+TEXT_MESSAGE_START   { messageId, role: "assistant" }
+TEXT_MESSAGE_CONTENT { messageId, delta }    ← streaming tokens
+TEXT_MESSAGE_END     { messageId }
+
+# Generative UI state push (optional)
+STATE_SNAPSHOT       { state: { type, data } }
+STATE_DELTA          { delta: [RFC-6902 JSON Patch ops] }
+
+RUN_FINISHED         { threadId, runId }
+```
+
+### Skill Invocation Event
+
+Sent **before** the user message:
+
+```json
+{ "type": "CUSTOM", "name": "skill_invoke",
+  "payload": { "skill_id": "string", "params": "string | object" } }
+```
+
+### Tool Approval Event
+
+Sent by the UI **after** the user acts on an approval card:
+
+```json
+{ "type": "CUSTOM", "name": "tool_approval",
+  "payload": { "tool_call_id": "string", "decision": "approve | reject" } }
+```
+
+### Generative UI State Types
+
+```ts
+type GenUIState =
+  | { type: "table";  data: { title: string; columns: string[]; rows: unknown[][] } }
+  | { type: "chart";  data: { title: string; chartType: "bar"|"line"; xKey: string; keys: string[]; data: object[] } }
+  | { type: "form";   data: { title: string; fields: { name: string; label: string; type: string }[]; submitLabel: string } }
+  | { type: "custom"; data: Record<string, unknown> }
+```
+
+---
+
+## 4. Configuration Quick Reference
+
+| Setting | Config key | Default | Description |
+|---------|-----------|---------|-------------|
+| HITL approval list | `approvalRequiredTools` | `["write_file","terminal"]` | Tools paused for human review |
+| Top-K tools (RAG) | `topKTools` | `3` | Max tools injected per request |
+| Max input tokens | `maxInputTokens` | `100 000` | Gateway hard limit |
+| Streaming | `streaming` | `true` | Disable for copy-paste workflow |
+| Show reasoning | `showReasoning` | `true` | Surface `REASONING_*` blocks |

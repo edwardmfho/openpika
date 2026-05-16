@@ -73,3 +73,6 @@ chrono  = { version = "0.4", features = ["serde"] }
 
 # Vector math (Phase 5 - cosine similarity)
 nalgebra = { version = "0.33" }
+
+# Async stream utilities (AG-UI SSE handler)
+tokio-stream = { version = "0.1" }
