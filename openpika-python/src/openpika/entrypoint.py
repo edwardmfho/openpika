@@ -11,6 +11,8 @@ import asyncio
 import json
 import logging
 
+from pydantic_ai.messages import ModelMessage, ModelRequest, ModelResponse, TextPart, UserPromptPart
+
 from .agent import get_agent
 
 logger = logging.getLogger(__name__)
@@ -86,11 +88,9 @@ def _extract_text(content) -> str:
     return str(content)
 
 
-def _build_history(messages: list[dict]):
+def _build_history(messages: list[dict]) -> list[ModelMessage]:
     """Convert raw message dicts to pydantic-ai ModelMessage history."""
-    from pydantic_ai.messages import ModelRequest, ModelResponse, TextPart, UserPromptPart
-
-    history = []
+    history: list[ModelMessage] = []
     for msg in messages:
         role = msg.get("role", "user")
         text = _extract_text(msg.get("content", ""))

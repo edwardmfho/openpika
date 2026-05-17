@@ -555,7 +555,7 @@ async def delete_tool(tool_id: str) -> bool:
         result = await sess.execute(
             text("DELETE FROM tool_configs WHERE id = :id AND kind != 'native'"), {"id": tool_id}
         )
-        return result.rowcount > 0
+        return result.rowcount > 0  # type: ignore[attr-defined]
 
 
 # ---------------------------------------------------------------------------
@@ -589,7 +589,7 @@ async def delete_session_override(session_id: str, tool_id: str) -> bool:
             text("DELETE FROM session_tool_overrides WHERE session_id = :sid AND tool_id = :tid"),
             {"sid": session_id, "tid": tool_id},
         )
-        return result.rowcount > 0
+        return result.rowcount > 0  # type: ignore[attr-defined]
 
 
 # ---------------------------------------------------------------------------
@@ -674,7 +674,7 @@ async def delete_skill(skill_id: str) -> bool:
         result = await sess.execute(
             text("DELETE FROM skills WHERE id = :id AND is_builtin = 0"), {"id": skill_id}
         )
-        return result.rowcount > 0
+        return result.rowcount > 0  # type: ignore[attr-defined]
 
 
 # ---------------------------------------------------------------------------
@@ -784,7 +784,7 @@ async def update_cron_job(job_id: str, **fields: Any) -> CronJob | None:
 async def delete_cron_job(job_id: str) -> bool:
     async with session_ctx() as sess:
         result = await sess.execute(text("DELETE FROM cron_jobs WHERE id = :id"), {"id": job_id})
-        return result.rowcount > 0
+        return result.rowcount > 0  # type: ignore[attr-defined]
 
 
 # ---------------------------------------------------------------------------

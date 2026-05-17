@@ -229,8 +229,8 @@ async def chat_completions(request: Request) -> JSONResponse:
 
 def _build_pydantic_history(messages: list[dict[str, str]]) -> list[Any]:
     try:
-        from pydantic_ai.messages import ModelRequest, ModelResponse, TextPart, UserPromptPart
-        history = []
+        from pydantic_ai.messages import ModelMessage, ModelRequest, ModelResponse, TextPart, UserPromptPart
+        history: list[ModelMessage] = []
         for m in messages:
             role = m.get("role", "")
             content = m.get("content", "")
