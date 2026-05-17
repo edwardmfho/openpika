@@ -49,7 +49,7 @@ export function AppShell() {
 
             {activeView === "chat" && session && (
               <div className="flex items-center gap-2 text-sm font-medium text-zinc-600 dark:text-zinc-300">
-                <span className="truncate max-w-[200px]">{session.title}</span>
+                <span className="truncate max-w-[200px]" suppressHydrationWarning>{session.title}</span>
               </div>
             )}
 
