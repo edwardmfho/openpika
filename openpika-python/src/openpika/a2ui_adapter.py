@@ -6,6 +6,7 @@ import json
 from collections.abc import AsyncIterator
 
 from ag_ui.core import BaseEvent, CustomEvent
+from ag_ui.core.types import RunAgentInput
 from pydantic_ai.messages import FunctionToolResultEvent, ToolReturnPart
 from pydantic_ai.ui.ag_ui import AGUIAdapter, AGUIEventStream
 
@@ -46,6 +47,13 @@ class OpenPikaAGUIEventStream(AGUIEventStream):
 
 class OpenPikaAGUIAdapter(AGUIAdapter):
     """AGUIAdapter wired to OpenPikaAGUIEventStream."""
+
+    @classmethod
+    def build_run_input(cls, body: bytes) -> RunAgentInput:
+        # Inject forwardedProps default so clients that omit it still validate.
+        data = json.loads(body)
+        data.setdefault("forwardedProps", {})
+        return RunAgentInput.model_validate(data)
 
     def build_event_stream(self) -> OpenPikaAGUIEventStream:
         return OpenPikaAGUIEventStream(

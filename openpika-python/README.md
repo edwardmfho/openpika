@@ -83,6 +83,73 @@ model = "google-gla:gemini-2.5-flash"
 port  = 8080
 ```
 
+## Multi-agent swarm
+
+Run multiple agents in a pipeline where each hands off its output to the next:
+
+```bash
+# research → write
+openpika swarm run "Explain how Rust's borrow checker works" --pipeline research,write
+
+# research → write → review
+openpika swarm run "Write a guide to async Python" --pipeline research,write,review
+
+# list built-in presets
+openpika swarm presets
+
+# list past runs
+openpika swarm runs
+```
+
+## Cron scheduler
+
+Run agent prompts on any cron schedule:
+
+```bash
+openpika cron add "Daily digest" \
+  --schedule "0 9 * * *" \
+  --prompt "Search the web for today's top AI news and summarise it"
+
+openpika cron list
+openpika cron run <id>     # trigger immediately
+openpika cron disable <id>
+openpika cron remove <id>
+```
+
+## Self-learning skills
+
+The agent proposes reusable prompt templates after complex tasks. Review them:
+
+```bash
+openpika skills pending      # proposals awaiting your review
+openpika skills approve <id>
+openpika skills reject <id>
+openpika skills list         # approved skills
+```
+
+## MCP server integration
+
+Add any MCP-compatible tool server (stdio or HTTP transport):
+
+```bash
+openpika mcp add "Playwright" --command "npx @playwright/mcp"
+openpika mcp add "My server" --command "http://localhost:3001/mcp"
+openpika mcp list
+openpika mcp enable/disable <id>
+openpika mcp remove <id>
+```
+
+## Browser automation
+
+Install Playwright to enable browser tools:
+
+```bash
+pip install 'openpika[browser]' && playwright install chromium
+```
+
+The agent gains: `browser_navigate`, `browser_snapshot`, `browser_click`,
+`browser_type`, `browser_extract`, `browser_close`.
+
 ## License
 
 MIT

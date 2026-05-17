@@ -469,7 +469,56 @@ export OPENPIKA__GATEWAY__WEBHOOK_SECRET=""
 
 ## What's next
 
+### Multi-agent swarm
+
+Run a research → write pipeline with two agents chained via an event bus:
+
+```bash
+openpika swarm run "Explain the history of Rust programming language" --pipeline research,write
+openpika swarm run "Analyse the risks of LLM agents" --pipeline research,analyse,review
+openpika swarm presets   # list built-in node types
+openpika swarm runs      # list past runs
+```
+
+### Cron scheduler
+
+Schedule agent prompts to run automatically:
+
+```bash
+openpika cron add "Daily AI news" \
+  --schedule "0 9 * * *" \
+  --prompt "Search the web for today's top AI news and summarise the top 5 stories"
+
+openpika cron list
+openpika cron run <id>   # trigger immediately to test
+```
+
+### Self-learning skills
+
+The agent proposes reusable workflows during conversations. Review and approve them:
+
+```bash
+openpika skills pending    # see what the agent has proposed
+openpika skills approve <id>
+openpika skills list       # view approved skills
+```
+
+### MCP servers
+
+Extend the agent with any MCP-compatible tool server:
+
+```bash
+openpika mcp add "Playwright" --command "npx @playwright/mcp"
+openpika mcp add "Filesystem" \
+  --command "npx @modelcontextprotocol/server-filesystem" \
+  --args '["/home/user/documents"]'
+openpika mcp list
+```
+
+### Further customisation
+
 - Add more tools in `openpika-python/src/openpika/tools.py` — any `async def` decorated with `@tool` works
 - Swap the model: change `default_model` to `claude-opus-4-7`, `gpt-4o`, or any OpenAI-compatible model
 - Enable encryption at rest: set `encrypt_at_rest = true` in config (generates a key in the OS keychain on first run)
 - Scale out: point `DATABASE_URL` at a shared PostgreSQL instance and run multiple `openpika serve` workers behind a load balancer
+- Connect messaging platforms (Telegram, Slack, Discord, WhatsApp): see [INTERFACE.md](INTERFACE.md)
