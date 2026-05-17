@@ -71,10 +71,6 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="OpenPika Gateway", version="0.1.0", lifespan=lifespan)
 
-# In-memory session store (chat history; sessions table backed by DB separately)
-_sessions: dict[str, dict[str, Any]] = {}
-_messages: dict[str, list[dict[str, Any]]] = {}
-
 
 # ---------------------------------------------------------------------------
 # Health
@@ -163,7 +159,7 @@ async def agui_run(request: Request):
     Protocol:  https://docs.ag-ui.com/introduction
     """
     try:
-        from pydantic_ai.ui.ag_ui import AGUIAdapter
+        from pydantic_ai.ui.ag_ui import AGUIAdapter  # noqa: F401 — validates install
     except ImportError:
         raise HTTPException(
             status_code=501,
@@ -173,7 +169,7 @@ async def agui_run(request: Request):
             ),
         )
 
-    # Eagerly read body so it's cached — AGUIAdapter.dispatch_request() will
+    # Eagerly read body so it's cached — dispatch_request() will
     # re-read it from the same cache via request.body().
     body_bytes = await request.body()
     try:
@@ -185,9 +181,10 @@ async def agui_run(request: Request):
     model_id: str = body_data.get("model", config.model)
 
     from openpika.agent import make_agent
+    from openpika.a2ui_adapter import OpenPikaAGUIAdapter
     agent, _ = await make_agent(model_id, session_id)
     async with agent:
-        return await AGUIAdapter.dispatch_request(request, agent=agent)
+        return await OpenPikaAGUIAdapter.dispatch_request(request, agent=agent)
 
 
 # ---------------------------------------------------------------------------
@@ -208,16 +205,14 @@ async def chat_completions(request: Request) -> JSONResponse:
     history = _build_pydantic_history(messages[:-1])
 
     from openpika.agent import make_agent, run_agent
+    from openpika.db import get_or_create_session, touch_session, add_message
     agent, _ = await make_agent(model_id, session_id)
     reply, _ = await run_agent(agent, user_text, history)
 
-    now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-    if session_id not in _sessions:
-        _sessions[session_id] = {"id": session_id, "created_at": now, "updated_at": now}
-        _messages[session_id] = []
-    _sessions[session_id]["updated_at"] = now
-    _messages[session_id].append({"role": "user", "content": user_text, "created_at": now})
-    _messages[session_id].append({"role": "assistant", "content": reply, "created_at": now})
+    await get_or_create_session(session_id, model_id)
+    await add_message(session_id, "user", user_text)
+    await add_message(session_id, "assistant", reply)
+    await touch_session(session_id)
 
     return JSONResponse({
         "id": f"chatcmpl-{uuid.uuid4().hex[:12]}",
@@ -254,23 +249,27 @@ def _build_pydantic_history(messages: list[dict[str, str]]) -> list[Any]:
 
 @app.get("/v1/sessions")
 async def list_sessions() -> dict[str, Any]:
-    return {"sessions": list(_sessions.values()), "total": len(_sessions)}
+    from openpika.db import list_db_sessions
+    sessions = await list_db_sessions()
+    return {"sessions": [dataclasses.asdict(s) for s in sessions], "total": len(sessions)}
 
 
 @app.get("/v1/sessions/{session_id}")
 async def get_session(session_id: str) -> dict[str, Any]:
-    session = _sessions.get(session_id)
+    from openpika.db import get_db_session
+    session = await get_db_session(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
-    return session
+    return dataclasses.asdict(session)
 
 
 @app.get("/v1/sessions/{session_id}/messages")
 async def get_messages(session_id: str) -> dict[str, Any]:
-    if session_id not in _sessions:
+    from openpika.db import get_db_session, get_db_messages
+    if not await get_db_session(session_id):
         raise HTTPException(status_code=404, detail="Session not found")
-    msgs = _messages.get(session_id, [])
-    return {"session_id": session_id, "messages": msgs, "total": len(msgs)}
+    msgs = await get_db_messages(session_id)
+    return {"session_id": session_id, "messages": [dataclasses.asdict(m) for m in msgs], "total": len(msgs)}
 
 
 # ---------------------------------------------------------------------------

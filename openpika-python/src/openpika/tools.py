@@ -436,6 +436,26 @@ async def propose_skill(
         return f"Error proposing skill: {exc}"
 
 
+# ─── A2UI Render ─────────────────────────────────────────────────────────────
+
+_A2UI_PREFIX = "__A2UI__"
+
+
+async def render_ui(
+    ctx: RunContext[dict],
+    surface_id: Annotated[str, "Unique surface ID (kebab-case, e.g. 'results-table', 'file-preview')"],
+    messages: Annotated[str, "A2UI v0.8 JSONL — one JSON object per line (beginRendering → surfaceUpdate → dataModelUpdate)"],
+) -> str:
+    """Render a rich interactive UI surface in the chat using A2UI declarative components.
+
+    Use this to display structured data, file contents, images, forms, or any
+    content that benefits from rich UI rather than plain text.
+
+    Write your text explanation first, then call render_ui — the surface appears below.
+    """
+    return f"{_A2UI_PREFIX}{surface_id}\n{messages}"
+
+
 # ─── Tool list exported to the agent ─────────────────────────────────────────
 
 TOOL_LIST: list[Tool] = [
@@ -445,6 +465,7 @@ TOOL_LIST: list[Tool] = [
     Tool(terminal),
     Tool(execute_code),
     Tool(generate_image),
+    Tool(render_ui),
     Tool(propose_skill),
     Tool(browser_navigate),
     Tool(browser_snapshot),

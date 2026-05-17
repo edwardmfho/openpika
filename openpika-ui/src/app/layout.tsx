@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import { OpenPikaA2UIProvider } from "@/components/a2ui/OpenPikaA2UIProvider";
 
 export const metadata: Metadata = {
   title: "OpenPika — Agent Framework",
@@ -10,7 +11,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en" suppressHydrationWarning>
       <head />
-      <body className="antialiased">{children}</body>
+      <body className="antialiased">
+        <OpenPikaA2UIProvider>{children}</OpenPikaA2UIProvider>
+      </body>
     </html>
   );
 }

@@ -1,15 +1,17 @@
 "use client";
 
 import { useRef, useEffect, useState, useCallback, KeyboardEvent } from "react";
-import { Send, Paperclip, Search, AlignLeft, Mail, Loader2 } from "lucide-react";
+import { Send, Paperclip, Loader2 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
+import { useA2UIActions } from "@a2ui/react";
+import type { ServerToClientMessage } from "@a2ui/react";
 import { useAppStore } from "@/store/store";
 import { ToolCallCard } from "@/components/tools/ToolCallCard";
 import { ReasoningBlock } from "@/components/genui/ReasoningBlock";
 import { StepProgress } from "@/components/genui/StepProgress";
-import { GenUIRenderer } from "@/components/genui/GenUIRenderer";
+import { A2UISurface } from "@/components/a2ui/A2UISurface";
 import { SkillPicker } from "./SkillPicker";
-import { streamOpenAIToAGUI, buildToolCallState, APPROVAL_REQUIRED_TOOLS } from "@/lib/streaming";
+import { streamAGUIEvents, buildToolCallState, APPROVAL_REQUIRED_TOOLS } from "@/lib/streaming";
 import { EventType } from "@/lib/agui";
 import type { AssistantMessage, Skill } from "@/lib/agui";
 import { cn } from "@/lib/utils";
@@ -22,8 +24,10 @@ export function ChatView() {
     addUserMessage, startAssistantMessage, appendAssistantText,
     finalizeAssistantMessage, upsertToolCall, approveToolCall,
     rejectToolCall, appendReasoning, startStep, finishStep,
-    setGenUISnapshot, applyGenUIDelta,
+    attachA2UISurface,
   } = useAppStore();
+
+  const a2uiActions = useA2UIActions();
 
   const [input, setInput] = useState("");
   const [showPicker, setShowPicker] = useState(false);
@@ -94,13 +98,17 @@ export function ChatView() {
     setAbortController(ac);
 
     try {
+      const threadId = session?.id ?? generateId();
+      const runId = generateId();
+
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           messages: [...openAIMessages, { role: "user", content }],
           model: settings.model,
-          stream: settings.streaming,
+          threadId,
+          runId,
         }),
         signal: ac.signal,
       });
@@ -113,20 +121,9 @@ export function ChatView() {
         return;
       }
 
-      if (!settings.streaming) {
-        const data = await response.json();
-        const text = data.choices?.[0]?.message?.content ?? "";
-        appendAssistantText(asstMsgId, text);
-        finalizeAssistantMessage(asstMsgId);
-        setIsStreaming(false);
-        return;
-      }
-
-      const threadId = session?.id ?? generateId();
-      const runId = generateId();
       const toolCallMsgMap = new Map<string, string>(); // toolCallId → asstMsgId
 
-      for await (const event of streamOpenAIToAGUI(response, threadId, runId)) {
+      for await (const event of streamAGUIEvents(response)) {
         if (ac.signal.aborted) break;
 
         switch (event.type) {
@@ -213,19 +210,19 @@ export function ChatView() {
             finishStep(asstMsgId, event.stepId, event.status);
             break;
 
-          case EventType.STATE_SNAPSHOT:
-            setGenUISnapshot(event.state);
-            break;
-
-          case EventType.STATE_DELTA:
-            applyGenUIDelta(event.delta as unknown[]);
-            break;
-
-          case EventType.CUSTOM:
-            if (event.name === "render" && event.payload) {
-              // Generative UI push from agent
+          case EventType.CUSTOM: {
+            if (event.name === "a2ui" && event.value) {
+              const { surfaceId, message } = event.value as {
+                surfaceId: string;
+                message: ServerToClientMessage;
+              };
+              a2uiActions.processMessages([message]);
+              if ("beginRendering" in message) {
+                attachA2UISurface(asstMsgId, surfaceId);
+              }
             }
             break;
+          }
         }
       }
     } catch (err) {
@@ -237,7 +234,7 @@ export function ChatView() {
       setIsStreaming(false);
       setAbortController(null);
     }
-  }, [messages, settings, session, skills, isStreaming]);
+  }, [messages, settings, session, skills, isStreaming, a2uiActions, attachA2UISurface]);
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (showPicker) {
@@ -439,8 +436,10 @@ function MessageRow({ message, onApprove, onReject }: MessageRowProps) {
           </div>
         )}
 
-        {/* Generative UI */}
-        {asstMsg.genUI && <GenUIRenderer state={asstMsg.genUI} />}
+        {/* A2UI surfaces */}
+        {asstMsg.a2uiSurfaces?.map((surfaceId) => (
+          <A2UISurface key={surfaceId} surfaceId={surfaceId} />
+        ))}
       </div>
     </div>
   );

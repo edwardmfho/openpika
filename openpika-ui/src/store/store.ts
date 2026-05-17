@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import { immer } from "zustand/middleware/immer";
-import type { ChatMessage, AssistantMessage, ToolCallState, Skill, GenUIState, StepState } from "@/lib/agui";
+import type { ChatMessage, AssistantMessage, ToolCallState, Skill, StepState } from "@/lib/agui";
 import { generateId } from "@/lib/utils";
 
 export { AVAILABLE_MODELS } from "@/lib/api";
@@ -82,10 +82,8 @@ interface AppState {
   startStep: (msgId: string, step: StepState) => void;
   finishStep: (msgId: string, stepId: string, status: StepState["status"]) => void;
 
-  // GenUI state (shared across session)
-  genUIState: Record<string, unknown>;
-  setGenUISnapshot: (state: Record<string, unknown>) => void;
-  applyGenUIDelta: (delta: unknown[]) => void;
+  // A2UI surfaces
+  attachA2UISurface: (msgId: string, surfaceId: string) => void;
 
   // Skills
   skills: Skill[];
@@ -281,20 +279,12 @@ export const useAppStore = create<AppState>()(
         if (step) step.status = status;
       }),
 
-      genUIState: {},
-      setGenUISnapshot: (state) => set((s) => { s.genUIState = state; }),
-      applyGenUIDelta: (delta) => set((s) => {
-        // Simple JSON Patch application
-        for (const op of delta as Array<{ op: string; path: string; value?: unknown }>) {
-          const parts = op.path.split("/").filter(Boolean);
-          if (op.op === "replace" || op.op === "add") {
-            let obj: Record<string, unknown> = s.genUIState;
-            for (let i = 0; i < parts.length - 1; i++) {
-              obj = (obj[parts[i]] as Record<string, unknown>) ?? {};
-            }
-            if (parts.length > 0) obj[parts[parts.length - 1]] = op.value;
-          }
-        }
+      attachA2UISurface: (msgId, surfaceId) => set((s) => {
+        const session = s.sessions.find((x) => x.id === (s.activeSessionId ?? s.sessions[0]?.id));
+        const msg = session?.messages.find((m) => m.id === msgId) as AssistantMessage | undefined;
+        if (!msg) return;
+        if (!msg.a2uiSurfaces) msg.a2uiSurfaces = [];
+        if (!msg.a2uiSurfaces.includes(surfaceId)) msg.a2uiSurfaces.push(surfaceId);
       }),
 
       skills: DEFAULT_SKILLS,

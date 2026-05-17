@@ -3,6 +3,37 @@
 import type { AGUIEvent, ToolCallState } from "./agui";
 import { EventType } from "./agui";
 
+// Reads a native AG-UI SSE stream and yields parsed events directly
+export async function* streamAGUIEvents(response: Response): AsyncGenerator<AGUIEvent> {
+  const reader = response.body!.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed.startsWith("data:")) continue;
+      const data = trimmed.slice(5).trim();
+      if (!data || data === "[DONE]") continue;
+
+      let event: AGUIEvent;
+      try {
+        event = JSON.parse(data) as AGUIEvent;
+      } catch {
+        continue;
+      }
+      yield event;
+    }
+  }
+}
+
 // Converts OpenAI SSE stream chunks into AG-UI events
 export async function* streamOpenAIToAGUI(
   response: Response,

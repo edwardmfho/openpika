@@ -130,7 +130,7 @@ export interface ReasoningEndEvent extends BaseEvent {
 export interface CustomEvent extends BaseEvent {
   type: EventType.CUSTOM;
   name: string;
-  payload: Record<string, unknown>;
+  value: unknown;
 }
 
 export type AGUIEvent =
@@ -198,7 +198,7 @@ export interface AssistantMessage extends BaseMessage {
   reasoningExpanded?: boolean;
   isStreaming: boolean;
   steps?: StepState[];
-  genUI?: GenUIState;
+  a2uiSurfaces?: string[];
 }
 
 export interface StepState {
@@ -207,11 +207,6 @@ export interface StepState {
   status: "pending" | "running" | "success" | "error" | "skipped";
   index: number;
   total?: number;
-}
-
-export interface GenUIState {
-  type: "table" | "chart" | "form" | "image_grid" | "custom";
-  data: Record<string, unknown>;
 }
 
 export interface FileAttachment {

@@ -261,6 +261,117 @@ async def init_db() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Session / message CRUD
+# ---------------------------------------------------------------------------
+
+@dataclass
+class Session:
+    id: str
+    model: str
+    source: str
+    title: str | None
+    created_at: str
+    updated_at: str
+
+
+@dataclass
+class Message:
+    id: str
+    session_id: str
+    role: str
+    content: str
+    created_at: str
+
+
+def _to_session(row: Any) -> Session:
+    d = dict(row._mapping)
+    return Session(
+        id=d["id"],
+        model=d.get("model", ""),
+        source=d.get("source", "cli"),
+        title=d.get("title"),
+        created_at=d.get("created_at", ""),
+        updated_at=d.get("updated_at", ""),
+    )
+
+
+def _to_message(row: Any) -> Message:
+    d = dict(row._mapping)
+    return Message(
+        id=d["id"],
+        session_id=d["session_id"],
+        role=d["role"],
+        content=d["content"],
+        created_at=d.get("created_at", ""),
+    )
+
+
+async def get_or_create_session(session_id: str, model: str, source: str = "api") -> Session:
+    """Return the existing session or create it if it does not exist."""
+    now = _utcnow()
+    async with session_ctx() as sess:
+        await sess.execute(
+            text(
+                "INSERT INTO sessions(id, model, source, created_at, updated_at) "
+                "SELECT :id, :model, :source, :now, :now "
+                "WHERE NOT EXISTS (SELECT 1 FROM sessions WHERE id = :id)"
+            ),
+            {"id": session_id, "model": model, "source": source, "now": now},
+        )
+        row = (await sess.execute(
+            text("SELECT * FROM sessions WHERE id = :id"), {"id": session_id}
+        )).fetchone()
+    return _to_session(row)  # type: ignore[arg-type]
+
+
+async def touch_session(session_id: str) -> None:
+    async with session_ctx() as sess:
+        await sess.execute(
+            text("UPDATE sessions SET updated_at = :now WHERE id = :id"),
+            {"id": session_id, "now": _utcnow()},
+        )
+
+
+async def list_db_sessions() -> list[Session]:
+    async with session_ctx() as sess:
+        rows = await sess.execute(
+            text("SELECT * FROM sessions ORDER BY updated_at DESC")
+        )
+        return [_to_session(r) for r in rows.fetchall()]
+
+
+async def get_db_session(session_id: str) -> Session | None:
+    async with session_ctx() as sess:
+        row = (await sess.execute(
+            text("SELECT * FROM sessions WHERE id = :id"), {"id": session_id}
+        )).fetchone()
+        return _to_session(row) if row else None
+
+
+async def add_message(session_id: str, role: str, content: str) -> Message:
+    msg_id = str(uuid.uuid4())
+    now = _utcnow()
+    async with session_ctx() as sess:
+        await sess.execute(
+            text(
+                "INSERT INTO messages(id, session_id, role, content, created_at) "
+                "VALUES (:id, :session_id, :role, :content, :now)"
+            ),
+            {"id": msg_id, "session_id": session_id, "role": role, "content": content, "now": now},
+        )
+    return Message(id=msg_id, session_id=session_id, role=role, content=content, created_at=now)
+
+
+async def get_db_messages(session_id: str) -> list[Message]:
+    async with session_ctx() as sess:
+        rows = await sess.execute(
+            text("SELECT * FROM messages WHERE session_id = :sid ORDER BY created_at ASC"),
+            {"sid": session_id},
+        )
+        return [_to_message(r) for r in rows.fetchall()]
+
+
+# ---------------------------------------------------------------------------
 # Data classes
 # ---------------------------------------------------------------------------
 

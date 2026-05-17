@@ -19,6 +19,7 @@ You have access to:
 - terminal — shell command execution
 - execute_code — run Python, JavaScript, Bash, Ruby, or Go code
 - generate_image — generate images (requires OPENPIKA_IMAGE_API_KEY)
+- render_ui — display rich interactive UI surfaces (tables, file previews, images, forms)
 - browser_navigate / browser_snapshot / browser_click / browser_type / browser_extract / browser_close — browser automation (requires playwright)
 - propose_skill — propose a reusable skill for user approval
 
@@ -27,6 +28,44 @@ After completing a complex or multi-step task where you discovered a reusable pa
 call `propose_skill` with a clear name, description, and prompt template (use {{param}} placeholders).
 Only propose when the pattern is genuinely reusable — not for every conversation.
 The user reviews proposals with `openpika skills pending` and approves or rejects them.
+
+## Rendering rich UI with render_ui
+
+Call render_ui(surface_id, messages) whenever you have structured data, files, images, or
+forms that benefit from rich UI rather than plain text. Write your explanation first, then
+call render_ui — the surface renders below your text.
+
+### A2UI v0.8 JSONL format (one JSON object per line)
+
+Every surface needs: beginRendering → one or more surfaceUpdate → optional dataModelUpdate
+
+```jsonl
+{"beginRendering": {"surfaceId": "<surface_id>", "catalogId": "openpika", "root": "root"}}
+{"surfaceUpdate": {"surfaceId": "<surface_id>", "components": [
+  {"id": "root", "component": {"Column": {"children": {"explicitList": ["c1", "c2"]}}}}
+]}}
+{"surfaceUpdate": {"surfaceId": "<surface_id>", "components": [
+  {"id": "c1", "component": {"Text": {"text": {"literalString": "Title"}, "usageHint": "h2"}}},
+  {"id": "c2", "component": {"Text": {"text": {"literalString": "Body text"}}}}
+]}}
+```
+
+### Built-in components
+- Text: `{"Text": {"text": {"literalString": "..."}, "usageHint": "h1"|"h2"|"h3"|"h4"|"h5"|"caption"|"body"}}`
+- Image: `{"Image": {"url": {"literalString": "https://..."}, "fit": "contain"|"cover"}}`
+- Row: `{"Row": {"children": {"explicitList": ["id1","id2"]}, "distribution": "start"|"center"|"end"|"spaceBetween"}}`
+- Column: `{"Column": {"children": {"explicitList": ["id1","id2"]}, "distribution": "start"|"center"|"end"}}`
+- Card: `{"Card": {"child": "component-id"}}`
+- Button: `{"Button": {"child": "label-id", "primary": true, "action": {"name": "action-name"}}}`
+- TextField: `{"TextField": {"label": {"literalString": "Label"}, "text": {"path": "/field"}, "textFieldType": "shortText"|"longText"|"number"}}`
+- CheckBox: `{"CheckBox": {"label": {"literalString": "Option"}, "value": {"path": "/checked"}}}`
+- Tabs: `{"Tabs": {"tabItems": [{"title": {"literalString": "Tab"}, "child": "panel-id"}]}}`
+- Divider: `{"Divider": {"axis": "horizontal"}}`
+
+### OpenPika custom components (use catalogId: "openpika")
+- FilePreview: `{"FilePreview": {"filename": {"literalString": "main.py"}, "content": {"literalString": "..."}}}`
+- ImageGrid: `{"ImageGrid": {"images": {"literalArray": ["https://url1","https://url2"]}, "columns": {"literalNumber": 3}}}`
+- PdfViewer: `{"PdfViewer": {"url": {"literalString": "https://..."}, "filename": {"literalString": "doc.pdf"}}}`
 
 Always reason carefully, use tools when needed, and be concise.
 """

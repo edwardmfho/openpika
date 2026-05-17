@@ -68,6 +68,10 @@ class Config:
         _load_dotenv()
         toml = _load_toml()
 
+        self.model: str = (
+            os.environ.get("OPENPIKA_MODEL")
+            or toml.get("model", "anthropic:claude-sonnet-4-6")
+        )
         self.api_key: str = (
             os.environ.get("ANTHROPIC_API_KEY")
             or toml.get("api_key", "")
@@ -80,11 +84,6 @@ class Config:
             env_var = _PROVIDER_KEY.get(provider, "ANTHROPIC_API_KEY")
             if not os.environ.get(env_var):
                 os.environ[env_var] = self.api_key
-
-        self.model: str = (
-            os.environ.get("OPENPIKA_MODEL")
-            or toml.get("model", "anthropic:claude-sonnet-4-6")
-        )
         self.database_url: str = (
             os.environ.get("DATABASE_URL")
             or os.environ.get("OPENPIKA_DATABASE_URL")

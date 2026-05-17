@@ -109,6 +109,62 @@ def mcp_remove(
         raise typer.Exit(1)
 
 
+@app.command("test")
+def mcp_test(
+    tool_id: str = typer.Argument(..., help="Tool ID to test (from 'openpika mcp list')"),
+) -> None:
+    """Test connectivity for a registered MCP server tool.
+
+    For stdio servers: verifies the command is found in PATH.
+    For HTTP servers:  sends a GET request and checks for a reachable host.
+    """
+    from openpika.db import init_db, get_tool
+
+    async def _run():
+        await init_db()
+        return await get_tool(tool_id)
+
+    tool = asyncio.run(_run())
+    if tool is None:
+        console.print(f"[red]Tool '{tool_id}' not found.[/red]")
+        raise typer.Exit(1)
+
+    if tool.kind == "native":
+        console.print(f"[yellow]{tool.name}[/yellow] is a native built-in — no external connection to test.")
+        return
+
+    if tool.kind == "mcp_stdio":
+        import shutil
+        cmd = tool.config.get("command", "")
+        exe = cmd.split()[0] if cmd else ""
+        if not exe:
+            console.print("[red]No command configured for this stdio tool.[/red]")
+            raise typer.Exit(1)
+        found = shutil.which(exe)
+        if found:
+            console.print(f"[green]OK[/green] — '{exe}' found at {found}")
+        else:
+            console.print(f"[red]FAIL[/red] — '{exe}' not found in PATH")
+            raise typer.Exit(1)
+
+    elif tool.kind == "mcp_http":
+        import urllib.request
+        import urllib.error
+        url = tool.config.get("url", "")
+        if not url:
+            console.print("[red]No URL configured for this HTTP tool.[/red]")
+            raise typer.Exit(1)
+        try:
+            with urllib.request.urlopen(url, timeout=5) as resp:
+                console.print(f"[green]OK[/green] — {url} responded with HTTP {resp.status}")
+        except urllib.error.HTTPError as exc:
+            # Any HTTP response means the host is reachable
+            console.print(f"[green]OK[/green] — {url} reachable (HTTP {exc.code})")
+        except Exception as exc:
+            console.print(f"[red]FAIL[/red] — could not reach {url}: {exc}")
+            raise typer.Exit(1)
+
+
 @app.command("enable")
 def mcp_enable(tool_id: str = typer.Argument(...)) -> None:
     """Enable a tool globally."""
