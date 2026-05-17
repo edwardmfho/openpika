@@ -1,7 +1,8 @@
 """Tool registry — maps tool_configs DB rows to pydantic-ai Tool / MCP objects."""
 from __future__ import annotations
 
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from pydantic_ai.tools import Tool
 

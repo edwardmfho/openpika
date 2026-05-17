@@ -3,16 +3,15 @@
 from __future__ import annotations
 
 import asyncio
-import sys
 from typing import Any
 
 import typer
 from rich.console import Console
+from rich.live import Live
 from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.prompt import Prompt
 from rich.spinner import Spinner
-from rich.live import Live
 
 console = Console()
 
@@ -36,8 +35,8 @@ def main(
     system: str = typer.Option("", "--system", help="Override system prompt"),
 ) -> None:
     """Start an interactive chat session."""
+    from openpika.agent import get_agent
     from openpika.config import config
-    from openpika.agent import get_agent, SYSTEM_PROMPT
 
     model_id = model or config.model
     provider = model_id.split(":")[0] if ":" in model_id else "anthropic"

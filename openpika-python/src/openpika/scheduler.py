@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 logger = logging.getLogger(__name__)
 
@@ -37,10 +37,10 @@ async def _tick(default_model: str) -> None:
         )
         return
 
-    from openpika.db import list_cron_jobs, update_cron_job
     from openpika.agent import make_agent, run_agent
+    from openpika.db import list_cron_jobs, update_cron_job
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     jobs = await list_cron_jobs(enabled_only=True)
 
     for job in jobs:
@@ -51,7 +51,7 @@ async def _tick(default_model: str) -> None:
                 next_run_dt = datetime.fromisoformat(job.next_run)
                 # Make timezone-aware if naive (assume UTC)
                 if next_run_dt.tzinfo is None:
-                    next_run_dt = next_run_dt.replace(tzinfo=timezone.utc)
+                    next_run_dt = next_run_dt.replace(tzinfo=UTC)
                 due = next_run_dt <= now
             except ValueError:
                 due = True  # malformed timestamp → run now

@@ -109,8 +109,8 @@ def ui_cmd(
     host: str = typer.Option("0.0.0.0", "--host", "-H", help="UI bind address"),
     backend_port: int = typer.Option(8080, "--backend-port", help="Backend gateway port"),
     backend_host: str = typer.Option("0.0.0.0", "--backend-host", help="Backend bind address"),
-    ui_dir: str = typer.Option("", "--ui-dir", help="Path to openpika-ui directory (auto-detected if omitted)"),
-    python: bool = typer.Option(False, "--python", help="Force pure-Python backend (ignore Rust binary)"),
+    ui_dir: str = typer.Option("", "--ui-dir", help="Path to openpika-ui directory (auto-detected if omitted)"),  # noqa: E501
+    python: bool = typer.Option(False, "--python", help="Force pure-Python backend (ignore Rust binary)"),  # noqa: E501
 ) -> None:
     """Start the backend gateway and React web UI together."""
     from openpika.cli.ui_cmd import main
@@ -135,8 +135,8 @@ def version_cmd() -> None:
 # Sub-apps: mcp / cron / skills
 # ---------------------------------------------------------------------------
 
-from openpika.cli.mcp_cmd import app as _mcp_app      # noqa: E402
-from openpika.cli.cron_cmd import app as _cron_app    # noqa: E402
+from openpika.cli.cron_cmd import app as _cron_app  # noqa: E402
+from openpika.cli.mcp_cmd import app as _mcp_app  # noqa: E402
 from openpika.cli.skills_cmd import app as _skills_app  # noqa: E402
 
 app.add_typer(_mcp_app,    name="mcp",    help="Manage MCP server tool registrations.")

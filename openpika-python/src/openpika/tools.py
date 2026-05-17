@@ -31,7 +31,6 @@ from typing import Annotated
 from pydantic_ai import RunContext
 from pydantic_ai.tools import Tool
 
-
 # ─── Web Search ───────────────────────────────────────────────────────────────
 
 async def web_search(
@@ -444,7 +443,8 @@ _A2UI_PREFIX = "__A2UI__"
 async def render_ui(
     ctx: RunContext[dict],
     surface_id: Annotated[str, "Unique surface ID (kebab-case, e.g. 'results-table', 'file-preview')"],
-    messages: Annotated[str, "A2UI v0.8 JSONL — one JSON object per line (beginRendering → surfaceUpdate → dataModelUpdate)"],
+    messages: Annotated[str, "A2UI v0.8 JSONL — one JSON object per line"
+                             " (beginRendering → surfaceUpdate → dataModelUpdate)"],
 ) -> str:
     """Render a rich interactive UI surface in the chat using A2UI declarative components.
 

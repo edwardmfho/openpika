@@ -12,7 +12,6 @@ from __future__ import annotations
 import os
 import sys
 from pathlib import Path
-from typing import Optional
 
 CONFIG_DIR = Path.home() / ".openpika"
 CONFIG_FILE = CONFIG_DIR / "config.toml"
@@ -50,10 +49,7 @@ def _load_dotenv() -> None:
 
 def _load_toml() -> dict:
     try:
-        if sys.version_info >= (3, 11):
-            import tomllib
-        else:
-            import tomli as tomllib  # type: ignore[no-redef]
+        import tomllib
         if CONFIG_FILE.exists():
             return tomllib.loads(CONFIG_FILE.read_text())
     except Exception:
@@ -147,10 +143,7 @@ def save(updates: dict) -> None:
     existing: dict = {}
     if CONFIG_FILE.exists():
         try:
-            if sys.version_info >= (3, 11):
-                import tomllib
-            else:
-                import tomli as tomllib  # type: ignore[no-redef]
+            import tomllib
             existing = tomllib.loads(CONFIG_FILE.read_text())
         except Exception:
             pass

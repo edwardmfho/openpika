@@ -3,13 +3,19 @@ from __future__ import annotations
 
 import json
 import uuid
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from datetime import datetime, timezone
-from typing import Any, AsyncIterator
+from datetime import UTC, datetime
+from typing import Any
 
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
 
 from openpika.config import config
 
@@ -161,19 +167,32 @@ _DDL: list[str] = [
 # ---------------------------------------------------------------------------
 
 _BUILTIN_TOOLS: list[dict[str, Any]] = [
-    {"id": "web_search",       "name": "Web Search",        "kind": "native", "description": "Search the web using DuckDuckGo",                                "sort_order": 0},
-    {"id": "read_file",        "name": "Read File",         "kind": "native", "description": "Read a file from the filesystem",                                 "sort_order": 1},
-    {"id": "write_file",       "name": "Write File",        "kind": "native", "description": "Write content to a file",                                          "sort_order": 2},
-    {"id": "terminal",         "name": "Terminal",          "kind": "native", "description": "Execute a shell command",                                           "sort_order": 3},
-    {"id": "execute_code",     "name": "Execute Code",      "kind": "native", "description": "Execute code in Python, JS, Bash, Ruby, or Go",                    "sort_order": 4},
-    {"id": "generate_image",   "name": "Generate Image",    "kind": "native", "description": "Generate an image using a configured image generation API",         "sort_order": 5},
-    {"id": "propose_skill",    "name": "Propose Skill",     "kind": "native", "description": "Propose a reusable skill for the user to review and approve",       "sort_order": 6},
-    {"id": "browser_navigate", "name": "Browser Navigate",  "kind": "native", "description": "Navigate the browser to a URL (requires playwright)",              "sort_order": 7},
-    {"id": "browser_snapshot", "name": "Browser Snapshot",  "kind": "native", "description": "Return current page URL, title, and visible text",                  "sort_order": 8},
-    {"id": "browser_click",    "name": "Browser Click",     "kind": "native", "description": "Click an element on the current page by CSS selector",              "sort_order": 9},
-    {"id": "browser_type",     "name": "Browser Type",      "kind": "native", "description": "Type text into an input element on the current page",               "sort_order": 10},
-    {"id": "browser_extract",  "name": "Browser Extract",   "kind": "native", "description": "Extract text from elements matching a CSS selector",                "sort_order": 11},
-    {"id": "browser_close",    "name": "Browser Close",     "kind": "native", "description": "Close the browser and release all resources",                       "sort_order": 12},
+    {"id": "web_search", "name": "Web Search", "kind": "native",
+     "description": "Search the web using DuckDuckGo", "sort_order": 0},
+    {"id": "read_file", "name": "Read File", "kind": "native",
+     "description": "Read a file from the filesystem", "sort_order": 1},
+    {"id": "write_file", "name": "Write File", "kind": "native",
+     "description": "Write content to a file", "sort_order": 2},
+    {"id": "terminal", "name": "Terminal", "kind": "native",
+     "description": "Execute a shell command", "sort_order": 3},
+    {"id": "execute_code", "name": "Execute Code", "kind": "native",
+     "description": "Execute code in Python, JS, Bash, Ruby, or Go", "sort_order": 4},
+    {"id": "generate_image", "name": "Generate Image", "kind": "native",
+     "description": "Generate an image using a configured image generation API", "sort_order": 5},
+    {"id": "propose_skill", "name": "Propose Skill", "kind": "native",
+     "description": "Propose a reusable skill for the user to review and approve", "sort_order": 6},
+    {"id": "browser_navigate", "name": "Browser Navigate", "kind": "native",
+     "description": "Navigate the browser to a URL (requires playwright)", "sort_order": 7},
+    {"id": "browser_snapshot", "name": "Browser Snapshot", "kind": "native",
+     "description": "Return current page URL, title, and visible text", "sort_order": 8},
+    {"id": "browser_click", "name": "Browser Click", "kind": "native",
+     "description": "Click an element on the current page by CSS selector", "sort_order": 9},
+    {"id": "browser_type", "name": "Browser Type", "kind": "native",
+     "description": "Type text into an input element on the current page", "sort_order": 10},
+    {"id": "browser_extract", "name": "Browser Extract", "kind": "native",
+     "description": "Extract text from elements matching a CSS selector", "sort_order": 11},
+    {"id": "browser_close", "name": "Browser Close", "kind": "native",
+     "description": "Close the browser and release all resources", "sort_order": 12},
 ]
 
 _BUILTIN_SKILLS: list[dict[str, Any]] = [
@@ -181,7 +200,9 @@ _BUILTIN_SKILLS: list[dict[str, Any]] = [
         "id": "summarise", "name": "Summarise", "icon": "📝",
         "description": "Condense a block of text into key points",
         "prompt_template": "Please summarise the following text concisely:\n\n{{text}}",
-        "params_schema": json.dumps({"text": {"type": "string", "label": "Text to summarise", "required": True, "multiline": True}}),
+        "params_schema": json.dumps(
+            {"text": {"type": "string", "label": "Text to summarise", "required": True, "multiline": True}}
+        ),
         "sort_order": 0,
     },
     {
@@ -198,7 +219,10 @@ _BUILTIN_SKILLS: list[dict[str, Any]] = [
     {
         "id": "explain_code", "name": "Explain Code", "icon": "💻",
         "description": "Plain-English explanation of a code snippet",
-        "prompt_template": "Explain the following {{language}} code in plain English:\n\n```{{language}}\n{{code}}\n```",
+        "prompt_template": (
+            "Explain the following {{language}} code in plain English:\n\n"
+            "```{{language}}\n{{code}}\n```"
+        ),
         "params_schema": json.dumps({
             "code":     {"type": "string", "label": "Code snippet", "required": True, "multiline": True},
             "language": {"type": "string", "label": "Language", "default": ""},
@@ -239,7 +263,8 @@ async def init_db() -> None:
         for tool in _BUILTIN_TOOLS:
             await conn.execute(
                 text(
-                    "INSERT INTO tool_configs(id, name, kind, description, config_json, sort_order, created_at, updated_at) "
+                    "INSERT INTO tool_configs"
+                    "(id, name, kind, description, config_json, sort_order, created_at, updated_at) "
                     "SELECT :id, :name, :kind, :description, '{}', :sort_order, :now, :now "
                     "WHERE NOT EXISTS (SELECT 1 FROM tool_configs WHERE id = :id)"
                 ),
@@ -248,8 +273,11 @@ async def init_db() -> None:
         for skill in _BUILTIN_SKILLS:
             await conn.execute(
                 text(
-                    "INSERT INTO skills(id, name, description, icon, prompt_template, params_schema, is_builtin, sort_order, created_at, updated_at) "
-                    "SELECT :id, :name, :description, :icon, :prompt_template, :params_schema, 1, :sort_order, :now, :now "
+                    "INSERT INTO skills"
+                    "(id, name, description, icon, prompt_template, params_schema,"
+                    " is_builtin, sort_order, created_at, updated_at) "
+                    "SELECT :id, :name, :description, :icon, :prompt_template, :params_schema,"
+                    " 1, :sort_order, :now, :now "
                     "WHERE NOT EXISTS (SELECT 1 FROM skills WHERE id = :id)"
                 ),
                 {**skill, "now": now},
@@ -447,7 +475,7 @@ def _to_skill(row: Any) -> Skill:
 
 
 def _utcnow() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 # ---------------------------------------------------------------------------
@@ -462,7 +490,8 @@ async def list_tools() -> list[ToolConfig]:
 
 async def get_tool(tool_id: str) -> ToolConfig | None:
     async with session_ctx() as sess:
-        row = (await sess.execute(text("SELECT * FROM tool_configs WHERE id = :id"), {"id": tool_id})).fetchone()
+        result = await sess.execute(text("SELECT * FROM tool_configs WHERE id = :id"), {"id": tool_id})
+        row = result.fetchone()
         return _to_tool(row) if row else None
 
 
@@ -480,7 +509,8 @@ async def create_tool(
     async with session_ctx() as sess:
         await sess.execute(
             text(
-                "INSERT INTO tool_configs(id, name, kind, description, config_json, enabled, sort_order, created_at, updated_at) "
+                "INSERT INTO tool_configs"
+                "(id, name, kind, description, config_json, enabled, sort_order, created_at, updated_at) "
                 "VALUES (:id, :name, :kind, :description, :config_json, 1, :sort_order, :now, :now)"
             ),
             {
@@ -514,7 +544,8 @@ async def update_tool(tool_id: str, **fields: Any) -> ToolConfig | None:
         return await get_tool(tool_id)
     clauses.append("updated_at = :now")
     async with session_ctx() as sess:
-        await sess.execute(text(f"UPDATE tool_configs SET {', '.join(clauses)} WHERE id = :id"), params)
+        sql = f"UPDATE tool_configs SET {', '.join(clauses)} WHERE id = :id"
+        await sess.execute(text(sql), params)
     return await get_tool(tool_id)
 
 
@@ -544,7 +575,8 @@ async def set_session_override(session_id: str, tool_id: str, enabled: bool) -> 
     async with session_ctx() as sess:
         await sess.execute(
             text(
-                "INSERT INTO session_tool_overrides(session_id, tool_id, enabled) VALUES (:sid, :tid, :en) "
+                "INSERT INTO session_tool_overrides(session_id, tool_id, enabled)"
+                " VALUES (:sid, :tid, :en) "
                 "ON CONFLICT(session_id, tool_id) DO UPDATE SET enabled = excluded.enabled"
             ),
             {"sid": session_id, "tid": tool_id, "en": 1 if enabled else 0},
@@ -572,7 +604,8 @@ async def list_skills() -> list[Skill]:
 
 async def get_skill(skill_id: str) -> Skill | None:
     async with session_ctx() as sess:
-        row = (await sess.execute(text("SELECT * FROM skills WHERE id = :id"), {"id": skill_id})).fetchone()
+        result = await sess.execute(text("SELECT * FROM skills WHERE id = :id"), {"id": skill_id})
+        row = result.fetchone()
         return _to_skill(row) if row else None
 
 
@@ -590,8 +623,11 @@ async def create_skill(
     async with session_ctx() as sess:
         await sess.execute(
             text(
-                "INSERT INTO skills(id, name, description, icon, prompt_template, params_schema, is_builtin, pinned, sort_order, created_at, updated_at) "
-                "VALUES (:id, :name, :description, :icon, :prompt_template, :params_schema, 0, :pinned, :sort_order, :now, :now)"
+                "INSERT INTO skills"
+                "(id, name, description, icon, prompt_template, params_schema,"
+                " is_builtin, pinned, sort_order, created_at, updated_at) "
+                "VALUES (:id, :name, :description, :icon, :prompt_template, :params_schema,"
+                " 0, :pinned, :sort_order, :now, :now)"
             ),
             {
                 "id": skill_id, "name": name, "description": description, "icon": icon,
@@ -605,8 +641,11 @@ async def create_skill(
 
 
 async def update_skill(skill_id: str, **fields: Any) -> Skill | None:
-    """Update a skill. Allowed fields: name, description, icon, prompt_template, params_schema, pinned, sort_order."""
-    allowed = {"name", "description", "icon", "prompt_template", "params_schema", "pinned", "sort_order"}
+    """Update a skill. Allowed fields: name, description, icon, prompt_template,
+    params_schema, pinned, sort_order."""
+    allowed = {
+        "name", "description", "icon", "prompt_template", "params_schema", "pinned", "sort_order"
+    }
     params: dict[str, Any] = {"id": skill_id, "now": _utcnow()}
     clauses: list[str] = []
     for key, val in fields.items():
@@ -701,9 +740,10 @@ async def create_cron_job(
     # Compute next_run using croniter if available
     next_run: str | None = None
     try:
+        from datetime import datetime
+
         from croniter import croniter
-        from datetime import datetime, timezone
-        next_dt = croniter(schedule, datetime.now(timezone.utc)).get_next(datetime)
+        next_dt = croniter(schedule, datetime.now(UTC)).get_next(datetime)
         next_run = next_dt.isoformat()
     except Exception:
         pass
@@ -809,7 +849,8 @@ async def create_pending_skill(
     async with session_ctx() as sess:
         await sess.execute(
             text(
-                "INSERT INTO pending_skills(id, name, description, prompt_template, params_schema, status, created_at, updated_at) "
+                "INSERT INTO pending_skills"
+                "(id, name, description, prompt_template, params_schema, status, created_at, updated_at) "
                 "VALUES (:id, :name, :description, :prompt_template, :params_schema, 'pending', :now, :now)"
             ),
             {

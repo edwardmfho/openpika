@@ -9,7 +9,9 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-app = typer.Typer(name="skills", help="Manage skills and agent skill proposals.", no_args_is_help=True)
+app = typer.Typer(
+    name="skills", help="Manage skills and agent skill proposals.", no_args_is_help=True
+)
 console = Console()
 
 
@@ -77,7 +79,10 @@ def skills_pending() -> None:
             Panel(
                 content,
                 title=f"[cyan]Proposal {short_id}[/cyan]",
-                subtitle=f"approve: openpika skills approve {short_id}  |  reject: openpika skills reject {short_id}",
+                subtitle=(
+                    f"approve: openpika skills approve {short_id}"
+                    f"  |  reject: openpika skills reject {short_id}"
+                ),
             )
         )
 
@@ -119,7 +124,10 @@ def _resolve(skill_id_prefix: str, approve: bool) -> None:
 
     action = "approved" if approve else "rejected"
     color = "green" if approve else "yellow"
-    console.print(f"[{color}]{action.capitalize()}[/{color}] skill proposal [cyan]{proposal.id[:8]}[/cyan] — {proposal.name}")
+    console.print(
+        f"[{color}]{action.capitalize()}[/{color}] skill proposal"
+        f" [cyan]{proposal.id[:8]}[/cyan] — {proposal.name}"
+    )
     if approve:
         console.print("  The skill is now available. Run `openpika skills list` to see it.")
 
@@ -129,7 +137,7 @@ def skills_delete(
     skill_id: str = typer.Argument(..., help="Skill ID (from 'openpika skills list')"),
 ) -> None:
     """Delete a user-created skill. Built-in skills cannot be deleted."""
-    from openpika.db import init_db, delete_skill
+    from openpika.db import delete_skill, init_db
 
     async def _run():
         await init_db()

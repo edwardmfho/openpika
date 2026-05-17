@@ -1,8 +1,6 @@
 """Unit tests for the Python entrypoint helpers."""
 
-import json
-import pytest
-from openpika.entrypoint import _extract_text, _build_history
+from openpika.entrypoint import _build_history, _extract_text
 
 
 def test_extract_text_string():

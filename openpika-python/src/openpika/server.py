@@ -36,7 +36,7 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 try:
-    from fastapi import FastAPI, HTTPException, Request, Response
+    from fastapi import FastAPI, HTTPException, Request
     from fastapi.responses import JSONResponse
 except ImportError as exc:
     raise ImportError(
@@ -45,7 +45,6 @@ except ImportError as exc:
     ) from exc
 
 from openpika.config import config
-
 
 # ---------------------------------------------------------------------------
 # Lifespan — init DB on startup
@@ -120,7 +119,8 @@ async def save_setup(request: Request) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail="model and api_key are required")
 
     import os as _os
-    from openpika.config import _PROVIDER_KEY, ENV_FILE, CONFIG_DIR, save
+
+    from openpika.config import _PROVIDER_KEY, CONFIG_DIR, ENV_FILE, save
 
     provider = model.split(":")[0] if ":" in model else "anthropic"
     env_var = _PROVIDER_KEY.get(provider, "ANTHROPIC_API_KEY")
@@ -131,7 +131,7 @@ async def save_setup(request: Request) -> dict[str, Any]:
     else:
         CONFIG_DIR.mkdir(parents=True, exist_ok=True)
         existing = ENV_FILE.read_text() if ENV_FILE.exists() else ""
-        lines = [l for l in existing.splitlines(keepends=True) if not l.startswith(f"{env_var}=")]
+        lines = [line for line in existing.splitlines(keepends=True) if not line.startswith(f"{env_var}=")]
         lines.append(f'{env_var}="{api_key}"\n')
         ENV_FILE.write_text("".join(lines))
 
@@ -180,8 +180,8 @@ async def agui_run(request: Request):
     session_id: str = body_data.get("threadId", str(uuid.uuid4()))
     model_id: str = body_data.get("model", config.model)
 
-    from openpika.agent import make_agent
     from openpika.a2ui_adapter import OpenPikaAGUIAdapter
+    from openpika.agent import make_agent
     agent, _ = await make_agent(model_id, session_id)
     async with agent:
         return await OpenPikaAGUIAdapter.dispatch_request(request, agent=agent)
@@ -205,7 +205,7 @@ async def chat_completions(request: Request) -> JSONResponse:
     history = _build_pydantic_history(messages[:-1])
 
     from openpika.agent import make_agent, run_agent
-    from openpika.db import get_or_create_session, touch_session, add_message
+    from openpika.db import add_message, get_or_create_session, touch_session
     agent, _ = await make_agent(model_id, session_id)
     reply, _ = await run_agent(agent, user_text, history)
 
@@ -265,7 +265,7 @@ async def get_session(session_id: str) -> dict[str, Any]:
 
 @app.get("/v1/sessions/{session_id}/messages")
 async def get_messages(session_id: str) -> dict[str, Any]:
-    from openpika.db import get_db_session, get_db_messages
+    from openpika.db import get_db_messages, get_db_session
     if not await get_db_session(session_id):
         raise HTTPException(status_code=404, detail="Session not found")
     msgs = await get_db_messages(session_id)

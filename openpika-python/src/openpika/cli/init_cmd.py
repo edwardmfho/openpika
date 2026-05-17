@@ -3,12 +3,11 @@
 from __future__ import annotations
 
 import sys
-from pathlib import Path
 
 import typer
 from rich.console import Console
 from rich.panel import Panel
-from rich.prompt import Confirm, Prompt
+from rich.prompt import Prompt
 
 from openpika.config import _PROVIDER_KEY
 
@@ -49,7 +48,7 @@ def run_wizard(first_run: bool = False) -> None:
     for i, m in enumerate(MODELS, 1):
         tag = "  [dim](default)[/dim]" if m == MODELS[0] else ""
         console.print(f"   {i}. {m}{tag}")
-    console.print(f"   … or type any model string (e.g. [dim]groq:llama-3.3-70b-versatile[/dim])")
+    console.print("   … or type any model string (e.g. [dim]groq:llama-3.3-70b-versatile[/dim])")
 
     model_input = Prompt.ask(
         "   Choose (1-8 or model name)",
@@ -73,7 +72,10 @@ def run_wizard(first_run: bool = False) -> None:
     masked = f"...{current_key[-6:]}" if len(current_key) > 6 else "(not set)"
 
     console.print()
-    console.print(f"[bold]2. API key for [cyan]{provider}[/cyan][/bold]  [dim]env: {env_var}  current: {masked}[/dim]")
+    console.print(
+        f"[bold]2. API key for [cyan]{provider}[/cyan][/bold]"
+        f"  [dim]env: {env_var}  current: {masked}[/dim]"
+    )
 
     api_key = Prompt.ask(
         "   API key",
@@ -109,15 +111,15 @@ def run_wizard(first_run: bool = False) -> None:
         updates["api_key"] = api_key
     else:
         # Write to .env so the SDK can pick it up
-        from openpika.config import ENV_FILE, CONFIG_DIR
+        from openpika.config import CONFIG_DIR, ENV_FILE
         CONFIG_DIR.mkdir(parents=True, exist_ok=True)
         env_line = f'{env_var}="{api_key}"\n'
         existing = ENV_FILE.read_text() if ENV_FILE.exists() else ""
         # Replace existing line or append
-        lines = [l for l in existing.splitlines(keepends=True) if not l.startswith(f"{env_var}=")]
+        lines = [line for line in existing.splitlines(keepends=True) if not line.startswith(f"{env_var}=")]
         lines.append(env_line)
         ENV_FILE.write_text("".join(lines))
-        console.print(f"   [dim]Saved to ~/.openpika/.env[/dim]")
+        console.print("   [dim]Saved to ~/.openpika/.env[/dim]")
 
     cfg.save(updates)
     cfg.config.__init__()  # type: ignore[misc]

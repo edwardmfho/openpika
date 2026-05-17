@@ -77,7 +77,7 @@ def mcp_add(
                 console.print("[red]Error:[/red] --env must be a valid JSON object")
                 raise typer.Exit(1)
 
-    from openpika.db import init_db, create_tool
+    from openpika.db import create_tool, init_db
 
     async def _run():
         await init_db()
@@ -93,7 +93,7 @@ def mcp_remove(
     tool_id: str = typer.Argument(..., help="Tool ID to remove (from 'openpika mcp list')"),
 ) -> None:
     """Remove an MCP server tool. Native built-in tools cannot be removed."""
-    from openpika.db import init_db, delete_tool
+    from openpika.db import delete_tool, init_db
 
     async def _run():
         await init_db()
@@ -118,7 +118,7 @@ def mcp_test(
     For stdio servers: verifies the command is found in PATH.
     For HTTP servers:  sends a GET request and checks for a reachable host.
     """
-    from openpika.db import init_db, get_tool
+    from openpika.db import get_tool, init_db
 
     async def _run():
         await init_db()
@@ -130,7 +130,9 @@ def mcp_test(
         raise typer.Exit(1)
 
     if tool.kind == "native":
-        console.print(f"[yellow]{tool.name}[/yellow] is a native built-in — no external connection to test.")
+        console.print(
+            f"[yellow]{tool.name}[/yellow] is a native built-in — no external connection to test."
+        )
         return
 
     if tool.kind == "mcp_stdio":
@@ -148,8 +150,8 @@ def mcp_test(
             raise typer.Exit(1)
 
     elif tool.kind == "mcp_http":
-        import urllib.request
         import urllib.error
+        import urllib.request
         url = tool.config.get("url", "")
         if not url:
             console.print("[red]No URL configured for this HTTP tool.[/red]")

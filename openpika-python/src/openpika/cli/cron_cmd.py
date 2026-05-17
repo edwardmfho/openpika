@@ -69,7 +69,7 @@ def cron_add(
       openpika cron add "Daily Digest" --schedule "0 9 * * *" --prompt "Summarise yesterday's news"
       openpika cron add "Weekly Report" --schedule "0 8 * * 1" --prompt "Generate weekly status report"
     """
-    from openpika.db import init_db, create_cron_job
+    from openpika.db import create_cron_job, init_db
 
     async def _run():
         await init_db()
@@ -96,7 +96,7 @@ def cron_remove(
     job_id: str = typer.Argument(..., help="Job ID or ID prefix (from 'openpika cron list')"),
 ) -> None:
     """Remove a cron job."""
-    from openpika.db import init_db, list_cron_jobs, delete_cron_job
+    from openpika.db import delete_cron_job, init_db, list_cron_jobs
 
     async def _run():
         await init_db()
@@ -154,8 +154,8 @@ def cron_run(
     job_id: str = typer.Argument(..., help="Job ID or prefix to run immediately"),
 ) -> None:
     """Trigger a cron job immediately, outside its normal schedule."""
-    from openpika.db import init_db, list_cron_jobs
     from openpika.config import config
+    from openpika.db import init_db, list_cron_jobs
 
     async def _run():
         await init_db()

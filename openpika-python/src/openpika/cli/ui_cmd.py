@@ -146,7 +146,9 @@ def main(
             )
             sys.exit(1)
 
-        console.print(f"  [green]▶[/green] Backend  → http://{backend_host}:{backend_port}  [dim](Python)[/dim]")
+        console.print(
+            f"  [green]▶[/green] Backend  → http://{backend_host}:{backend_port}  [dim](Python)[/dim]"
+        )
         backend_proc = subprocess.Popen(
             [
                 sys.executable, "-m", "uvicorn",

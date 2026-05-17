@@ -7,9 +7,9 @@ import sys
 
 import typer
 from rich.console import Console
+from rich.live import Live
 from rich.markdown import Markdown
 from rich.spinner import Spinner
-from rich.live import Live
 
 console = Console()
 
@@ -21,8 +21,8 @@ def main(
     no_tools: bool = typer.Option(False, "--no-tools", help="Disable tool use"),
 ) -> None:
     """Run a one-shot task and print the result."""
-    from openpika.config import config
     from openpika.agent import get_agent
+    from openpika.config import config
 
     model_id = model or config.model
     provider = model_id.split(":")[0] if ":" in model_id else "anthropic"
