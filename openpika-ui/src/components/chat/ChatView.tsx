@@ -29,6 +29,7 @@ export function ChatView() {
 
   const a2uiActions = useA2UIActions();
 
+  const [mounted, setMounted] = useState(false);
   const [input, setInput] = useState("");
   const [showPicker, setShowPicker] = useState(false);
   const [pickerQuery, setPickerQuery] = useState("");
@@ -38,6 +39,8 @@ export function ChatView() {
   const session = activeSession();
   const messages = session?.messages ?? [];
   const pinnedList = skills.filter((s) => pinnedSkills.includes(s.id));
+
+  useEffect(() => { setMounted(true); }, []);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -257,7 +260,7 @@ export function ChatView() {
     <div className="flex flex-col h-full relative">
       {/* Messages */}
       <div className="flex-1 overflow-y-auto">
-        {messages.length === 0 ? (
+        {!mounted || messages.length === 0 ? (
           <WelcomeScreen onSkill={insertSkill} skills={skills.slice(0, 6)} />
         ) : (
           <div className="max-w-4xl mx-auto px-4 py-8 pb-36 space-y-6">
