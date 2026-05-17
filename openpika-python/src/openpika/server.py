@@ -185,8 +185,7 @@ async def agui_run(request: Request):
     from openpika.agent import make_agent
 
     agent, _ = await make_agent(model_id, session_id)
-    async with agent:
-        return await OpenPikaAGUIAdapter.dispatch_request(request, agent=agent)
+    return await OpenPikaAGUIAdapter.dispatch_request(request, agent=agent)
 
 
 # ---------------------------------------------------------------------------
