@@ -41,14 +41,15 @@ def mcp_list() -> None:
 @app.command("add")
 def mcp_add(
     name: str = typer.Argument(..., help="Human-readable name for the MCP server"),
-    command: str = typer.Option(..., "--command", "-c",
-                                help="Command to run (stdio) or full URL (http). "
-                                     "e.g. 'npx @playwright/mcp' or 'http://localhost:3001/mcp'"),
+    command: str = typer.Option(
+        ...,
+        "--command",
+        "-c",
+        help="Command to run (stdio) or full URL (http). e.g. 'npx @playwright/mcp' or 'http://localhost:3001/mcp'",
+    ),
     description: str = typer.Option("", "--description", "-d", help="Short description"),
-    args: str = typer.Option("", "--args", "-a",
-                             help="Extra CLI arguments as JSON array, e.g. '[\"--headless\"]'"),
-    env: str = typer.Option("", "--env", "-e",
-                            help="Extra env vars as JSON object, e.g. '{\"PORT\": \"3001\"}'"),
+    args: str = typer.Option("", "--args", "-a", help="Extra CLI arguments as JSON array, e.g. '[\"--headless\"]'"),
+    env: str = typer.Option("", "--env", "-e", help='Extra env vars as JSON object, e.g. \'{"PORT": "3001"}\''),
 ) -> None:
     """Register a new MCP server tool (stdio or HTTP transport).
 
@@ -103,9 +104,7 @@ def mcp_remove(
     if ok:
         console.print(f"[green]Removed[/green] tool {tool_id}")
     else:
-        console.print(
-            f"[red]Failed:[/red] tool '{tool_id}' not found or is a built-in native tool."
-        )
+        console.print(f"[red]Failed:[/red] tool '{tool_id}' not found or is a built-in native tool.")
         raise typer.Exit(1)
 
 
@@ -130,13 +129,12 @@ def mcp_test(
         raise typer.Exit(1)
 
     if tool.kind == "native":
-        console.print(
-            f"[yellow]{tool.name}[/yellow] is a native built-in — no external connection to test."
-        )
+        console.print(f"[yellow]{tool.name}[/yellow] is a native built-in — no external connection to test.")
         return
 
     if tool.kind == "mcp_stdio":
         import shutil
+
         cmd = tool.config.get("command", "")
         exe = cmd.split()[0] if cmd else ""
         if not exe:
@@ -152,6 +150,7 @@ def mcp_test(
     elif tool.kind == "mcp_http":
         import urllib.error
         import urllib.request
+
         url = tool.config.get("url", "")
         if not url:
             console.print("[red]No URL configured for this HTTP tool.[/red]")

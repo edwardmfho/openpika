@@ -1,4 +1,5 @@
 """pydantic-ai agent definition."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -79,18 +80,21 @@ def get_agent(
     model_id: str,
     tools: list[Tool] | object = _UNSET_SENTINEL,
     mcp_servers: list[Any] | None = None,
+    system_prompt: str | None = None,
 ) -> Agent:
     """Create an Agent. Cached callers (CLI, entrypoint) get TOOL_LIST by default.
 
     Pass explicit tools/mcp_servers when loading from the registry.
     mcp_servers are passed as pydantic-ai toolsets (Agent.__aenter__ starts them).
+    system_prompt, when given, is prepended to SYSTEM_PROMPT (e.g. swarm node roles).
     """
     if ":" not in model_id:
         model_id = f"anthropic:{model_id}"
     resolved_tools: list[Tool] = TOOL_LIST if tools is _UNSET_SENTINEL else tools  # type: ignore[assignment]
+    full_prompt = SYSTEM_PROMPT if system_prompt is None else f"{system_prompt}\n\n{SYSTEM_PROMPT}"
     return Agent(
         model=infer_model(model_id),
-        system_prompt=SYSTEM_PROMPT,
+        system_prompt=full_prompt,
         tools=resolved_tools,
         toolsets=mcp_servers or [],
         retries=2,

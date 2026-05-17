@@ -1,4 +1,5 @@
 """Custom AG-UI adapter that intercepts render_ui tool results and emits A2UI CUSTOM events."""
+
 from __future__ import annotations
 
 import json
@@ -14,9 +15,7 @@ _A2UI_PREFIX = "__A2UI__"
 class OpenPikaAGUIEventStream(AGUIEventStream):
     """Extends AGUIEventStream to convert render_ui tool results into A2UI CUSTOM events."""
 
-    async def handle_function_tool_result(
-        self, event: FunctionToolResultEvent
-    ) -> AsyncIterator[BaseEvent]:
+    async def handle_function_tool_result(self, event: FunctionToolResultEvent) -> AsyncIterator[BaseEvent]:
         part = event.part
         if (
             isinstance(part, ToolReturnPart)
@@ -24,10 +23,10 @@ class OpenPikaAGUIEventStream(AGUIEventStream):
             and isinstance(part.content, str)
             and part.content.startswith(_A2UI_PREFIX)
         ):
-            rest = part.content[len(_A2UI_PREFIX):]
+            rest = part.content[len(_A2UI_PREFIX) :]
             newline = rest.find("\n")
             surface_id = rest[:newline] if newline >= 0 else rest
-            jsonl = rest[newline + 1:] if newline >= 0 else ""
+            jsonl = rest[newline + 1 :] if newline >= 0 else ""
 
             for line in jsonl.strip().splitlines():
                 line = line.strip()

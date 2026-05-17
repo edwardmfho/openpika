@@ -55,10 +55,8 @@ def cron_list() -> None:
 @app.command("add")
 def cron_add(
     name: str = typer.Argument(..., help="Job name"),
-    schedule: str = typer.Option(..., "--schedule", "-s",
-                                 help="Cron expression, e.g. '0 9 * * *' (daily at 9 AM UTC)"),
-    prompt: str = typer.Option(..., "--prompt", "-p",
-                               help="Prompt the agent will receive when the job fires"),
+    schedule: str = typer.Option(..., "--schedule", "-s", help="Cron expression, e.g. '0 9 * * *' (daily at 9 AM UTC)"),
+    prompt: str = typer.Option(..., "--prompt", "-p", help="Prompt the agent will receive when the job fires"),
     model: str = typer.Option("", "--model", "-m", help="Model override (uses default if omitted)"),
 ) -> None:
     """Add a new cron job.
@@ -165,6 +163,7 @@ def cron_run(
             return None, f"Found {len(matches)} jobs matching '{job_id}'"
         job = matches[0]
         from openpika.agent import make_agent, run_agent
+
         model = job.model or config.model
         agent, _ = await make_agent(model)
         reply, _ = await run_agent(agent, job.prompt, [])

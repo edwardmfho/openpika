@@ -83,10 +83,7 @@ def _start_python_gateway(host: str, port: int, workers: int) -> None:
     try:
         import uvicorn  # noqa: F401
     except ImportError:
-        console.print(
-            "[red]uvicorn is not installed.[/red]\n"
-            "Run: [bold]pip install 'openpika[server]'[/bold]"
-        )
+        console.print("[red]uvicorn is not installed.[/red]\nRun: [bold]pip install 'openpika[server]'[/bold]")
         sys.exit(1)
 
     import uvicorn

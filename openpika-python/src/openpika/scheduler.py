@@ -31,10 +31,7 @@ async def _tick(default_model: str) -> None:
     try:
         from croniter import croniter
     except ImportError:
-        logger.warning(
-            "croniter not installed — cron scheduler is disabled. "
-            "Run: pip install croniter"
-        )
+        logger.warning("croniter not installed — cron scheduler is disabled. Run: pip install croniter")
         return
 
     from openpika.agent import make_agent, run_agent

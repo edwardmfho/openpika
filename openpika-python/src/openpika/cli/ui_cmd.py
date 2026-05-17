@@ -20,6 +20,7 @@ console = Console()
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _is_elf(p: Path) -> bool:
     """Return True if the file starts with the ELF magic bytes (compiled binary)."""
     try:
@@ -106,6 +107,7 @@ def _wait_for_port(proc: subprocess.Popen, host: str, port: int, timeout: int = 
 # Main
 # ---------------------------------------------------------------------------
 
+
 def main(
     port: int = 3000,
     host: str = "0.0.0.0",
@@ -115,6 +117,7 @@ def main(
     python_only: bool = False,
 ) -> None:
     from openpika.config import config
+
     _ = config.require_api_key()
 
     ui_path = _find_ui_dir(ui_dir)
@@ -146,16 +149,19 @@ def main(
             )
             sys.exit(1)
 
-        console.print(
-            f"  [green]▶[/green] Backend  → http://{backend_host}:{backend_port}  [dim](Python)[/dim]"
-        )
+        console.print(f"  [green]▶[/green] Backend  → http://{backend_host}:{backend_port}  [dim](Python)[/dim]")
         backend_proc = subprocess.Popen(
             [
-                sys.executable, "-m", "uvicorn",
+                sys.executable,
+                "-m",
+                "uvicorn",
                 "openpika.server:app",
-                "--host", backend_host,
-                "--port", str(backend_port),
-                "--log-level", "info",
+                "--host",
+                backend_host,
+                "--port",
+                str(backend_port),
+                "--log-level",
+                "info",
             ],
         )
 

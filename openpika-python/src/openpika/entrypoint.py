@@ -107,6 +107,7 @@ def _build_history(messages: list[dict]) -> list[ModelMessage]:
 # AG-UI entry point (called by Rust PyO3 bridge for /v1/awp/run)
 # ---------------------------------------------------------------------------
 
+
 def agui_run_events(body_json: str, config_json: str) -> str:
     """Synchronous wrapper called by the Rust PyO3 bridge for AG-UI runs.
 

@@ -9,9 +9,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-app = typer.Typer(
-    name="skills", help="Manage skills and agent skill proposals.", no_args_is_help=True
-)
+app = typer.Typer(name="skills", help="Manage skills and agent skill proposals.", no_args_is_help=True)
 console = Console()
 
 
@@ -73,16 +71,14 @@ def skills_pending() -> None:
         )
         if p.params_schema:
             import json
+
             content += f"\n\n[bold]Parameters:[/bold]\n{json.dumps(p.params_schema, indent=2)}"
 
         console.print(
             Panel(
                 content,
                 title=f"[cyan]Proposal {short_id}[/cyan]",
-                subtitle=(
-                    f"approve: openpika skills approve {short_id}"
-                    f"  |  reject: openpika skills reject {short_id}"
-                ),
+                subtitle=(f"approve: openpika skills approve {short_id}  |  reject: openpika skills reject {short_id}"),
             )
         )
 
@@ -125,8 +121,7 @@ def _resolve(skill_id_prefix: str, approve: bool) -> None:
     action = "approved" if approve else "rejected"
     color = "green" if approve else "yellow"
     console.print(
-        f"[{color}]{action.capitalize()}[/{color}] skill proposal"
-        f" [cyan]{proposal.id[:8]}[/cyan] — {proposal.name}"
+        f"[{color}]{action.capitalize()}[/{color}] skill proposal [cyan]{proposal.id[:8]}[/cyan] — {proposal.name}"
     )
     if approve:
         console.print("  The skill is now available. Run `openpika skills list` to see it.")

@@ -33,6 +33,7 @@ from pydantic_ai.tools import Tool
 
 # ─── Web Search ───────────────────────────────────────────────────────────────
 
+
 async def web_search(
     ctx: RunContext[dict],
     query: Annotated[str, "Search query"],
@@ -69,6 +70,7 @@ async def web_search(
 
 # ─── File I/O ─────────────────────────────────────────────────────────────────
 
+
 async def read_file(
     ctx: RunContext[dict],
     path: Annotated[str, "Absolute or relative file path"],
@@ -102,6 +104,7 @@ async def write_file(
 
 # ─── Terminal ─────────────────────────────────────────────────────────────────
 
+
 async def terminal(
     ctx: RunContext[dict],
     command: Annotated[str, "Shell command to execute"],
@@ -131,16 +134,16 @@ async def terminal(
 # ─── Code Execution ───────────────────────────────────────────────────────────
 
 _CODE_RUNNERS: dict[str, tuple[list[str], str]] = {
-    "python":     ([sys.executable], ".py"),
-    "python3":    ([sys.executable], ".py"),
-    "javascript": (["node"],         ".js"),
-    "js":         (["node"],         ".js"),
+    "python": ([sys.executable], ".py"),
+    "python3": ([sys.executable], ".py"),
+    "javascript": (["node"], ".js"),
+    "js": (["node"], ".js"),
     "typescript": (["npx", "ts-node", "--skip-project"], ".ts"),
-    "ts":         (["npx", "ts-node", "--skip-project"], ".ts"),
-    "bash":       (["bash"],         ".sh"),
-    "sh":         (["sh"],           ".sh"),
-    "ruby":       (["ruby"],         ".rb"),
-    "go":         (["go", "run"],    ".go"),
+    "ts": (["npx", "ts-node", "--skip-project"], ".ts"),
+    "bash": (["bash"], ".sh"),
+    "sh": (["sh"], ".sh"),
+    "ruby": (["ruby"], ".rb"),
+    "go": (["go", "run"], ".go"),
 }
 
 
@@ -197,6 +200,7 @@ async def execute_code(
 
 # ─── Image Generation ─────────────────────────────────────────────────────────
 
+
 async def generate_image(
     ctx: RunContext[dict],
     prompt: Annotated[str, "Description of the image to generate"],
@@ -247,8 +251,7 @@ async def generate_image(
 
         data = resp.json()
         urls = [
-            img.get("url") or f"[base64 image, {len(img.get('b64_json',''))} chars]"
-            for img in data.get("data", [])
+            img.get("url") or f"[base64 image, {len(img.get('b64_json', ''))} chars]" for img in data.get("data", [])
         ]
         return "\n".join(u for u in urls if u) or "Error: No images in response"
     except Exception as exc:
@@ -266,10 +269,7 @@ async def _get_page():
     try:
         from playwright.async_api import async_playwright
     except ImportError:
-        return None, (
-            "Error: playwright not installed.\n"
-            "Run: pip install playwright && playwright install chromium"
-        )
+        return None, ("Error: playwright not installed.\nRun: pip install playwright && playwright install chromium")
 
     state = _browser_state
     if not state.get("pw"):
@@ -391,6 +391,7 @@ async def browser_close(ctx: RunContext[dict]) -> str:
 
 # ─── Self-Learning — Skill Proposal ──────────────────────────────────────────
 
+
 async def propose_skill(
     ctx: RunContext[dict],
     name: Annotated[str, "Short, descriptive name for the skill (e.g. 'Summarise Meeting Notes')"],
@@ -421,16 +422,14 @@ async def propose_skill(
 
     try:
         from openpika.db import create_pending_skill
+
         await create_pending_skill(
             name=name,
             description=description,
             prompt_template=prompt_template,
             params_schema=schema,
         )
-        return (
-            f"Skill '{name}' proposed and queued for review.\n"
-            f"Run `openpika skills pending` to approve or reject it."
-        )
+        return f"Skill '{name}' proposed and queued for review.\nRun `openpika skills pending` to approve or reject it."
     except Exception as exc:
         return f"Error proposing skill: {exc}"
 
@@ -443,8 +442,9 @@ _A2UI_PREFIX = "__A2UI__"
 async def render_ui(
     ctx: RunContext[dict],
     surface_id: Annotated[str, "Unique surface ID (kebab-case, e.g. 'results-table', 'file-preview')"],
-    messages: Annotated[str, "A2UI v0.8 JSONL — one JSON object per line"
-                             " (beginRendering → surfaceUpdate → dataModelUpdate)"],
+    messages: Annotated[
+        str, "A2UI v0.8 JSONL — one JSON object per line (beginRendering → surfaceUpdate → dataModelUpdate)"
+    ],
 ) -> str:
     """Render a rich interactive UI surface in the chat using A2UI declarative components.
 

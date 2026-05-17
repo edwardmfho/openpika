@@ -68,14 +68,12 @@ def run_wizard(first_run: bool = False) -> None:
     provider = model.split(":")[0]
     env_var = _PROVIDER_KEY.get(provider, "ANTHROPIC_API_KEY")
     import os
+
     current_key = cfg.config.api_key if provider == "anthropic" else os.environ.get(env_var, "")
     masked = f"...{current_key[-6:]}" if len(current_key) > 6 else "(not set)"
 
     console.print()
-    console.print(
-        f"[bold]2. API key for [cyan]{provider}[/cyan][/bold]"
-        f"  [dim]env: {env_var}  current: {masked}[/dim]"
-    )
+    console.print(f"[bold]2. API key for [cyan]{provider}[/cyan][/bold]  [dim]env: {env_var}  current: {masked}[/dim]")
 
     api_key = Prompt.ask(
         "   API key",
@@ -112,6 +110,7 @@ def run_wizard(first_run: bool = False) -> None:
     else:
         # Write to .env so the SDK can pick it up
         from openpika.config import CONFIG_DIR, ENV_FILE
+
         CONFIG_DIR.mkdir(parents=True, exist_ok=True)
         env_line = f'{env_var}="{api_key}"\n'
         existing = ENV_FILE.read_text() if ENV_FILE.exists() else ""
@@ -131,7 +130,7 @@ def run_wizard(first_run: bool = False) -> None:
             f"  Model : [cyan]{model}[/cyan]\n"
             f"  Port  : [cyan]{port}[/cyan]\n"
             f"  Config: [dim]~/.openpika/config.toml[/dim]\n\n"
-            "Run [bold]openpika run \"hello\"[/bold] to test your setup.",
+            'Run [bold]openpika run "hello"[/bold] to test your setup.',
             border_style="green",
         )
     )
@@ -143,6 +142,7 @@ def main(
     """Interactive setup wizard — configure API key, model, and gateway port."""
     if reset:
         from openpika.config import CONFIG_FILE
+
         if CONFIG_FILE.exists():
             CONFIG_FILE.unlink()
             console.print("[yellow]Configuration reset.[/yellow]")

@@ -42,6 +42,7 @@ def main(
     provider = model_id.split(":")[0] if ":" in model_id else "anthropic"
     if provider == "anthropic":
         import os
+
         os.environ.setdefault("ANTHROPIC_API_KEY", config.require_api_key())
 
     agent = get_agent(model_id)

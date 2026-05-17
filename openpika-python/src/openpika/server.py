@@ -23,6 +23,7 @@ Tool / skill management:
   PATCH  /v1/skills/{id}                       Update a skill
   DELETE /v1/skills/{id}                       Delete a non-builtin skill
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -39,10 +40,7 @@ try:
     from fastapi import FastAPI, HTTPException, Request
     from fastapi.responses import JSONResponse
 except ImportError as exc:
-    raise ImportError(
-        "fastapi is required for the Python gateway. "
-        "Run: pip install 'openpika[server]'"
-    ) from exc
+    raise ImportError("fastapi is required for the Python gateway. Run: pip install 'openpika[server]'") from exc
 
 from openpika.config import config
 
@@ -50,13 +48,16 @@ from openpika.config import config
 # Lifespan — init DB on startup
 # ---------------------------------------------------------------------------
 
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     from openpika.db import init_db
+
     await init_db()
 
     # Start background cron scheduler
     from openpika.scheduler import run_scheduler
+
     _scheduler_task = asyncio.create_task(run_scheduler(config.model))
 
     yield
@@ -74,6 +75,7 @@ app = FastAPI(title="OpenPika Gateway", version="0.1.0", lifespan=lifespan)
 # ---------------------------------------------------------------------------
 # Health
 # ---------------------------------------------------------------------------
+
 
 @app.get("/health")
 async def health() -> dict[str, str]:
@@ -99,6 +101,7 @@ async def get_config() -> dict[str, Any]:
 @app.get("/v1/setup-status")
 async def setup_status() -> dict[str, Any]:
     from openpika.config import _PROVIDER_KEY
+
     provider = config.model.split(":")[0] if ":" in config.model else "anthropic"
     env_var = _PROVIDER_KEY.get(provider, "ANTHROPIC_API_KEY")
     key = config.api_key_for_provider(provider)
@@ -147,6 +150,7 @@ async def save_setup(request: Request) -> dict[str, Any]:
 # AG-UI protocol — /v1/awp/run
 # ---------------------------------------------------------------------------
 
+
 @app.post("/v1/awp/run")
 async def agui_run(request: Request):
     """AG-UI protocol endpoint.
@@ -163,10 +167,7 @@ async def agui_run(request: Request):
     except ImportError:
         raise HTTPException(
             status_code=501,
-            detail=(
-                "ag-ui-protocol is not installed. "
-                "Run: pip install 'openpika[agui]'"
-            ),
+            detail=("ag-ui-protocol is not installed. Run: pip install 'openpika[agui]'"),
         )
 
     # Eagerly read body so it's cached — dispatch_request() will
@@ -182,6 +183,7 @@ async def agui_run(request: Request):
 
     from openpika.a2ui_adapter import OpenPikaAGUIAdapter
     from openpika.agent import make_agent
+
     agent, _ = await make_agent(model_id, session_id)
     async with agent:
         return await OpenPikaAGUIAdapter.dispatch_request(request, agent=agent)
@@ -190,6 +192,7 @@ async def agui_run(request: Request):
 # ---------------------------------------------------------------------------
 # Chat completions — OpenAI-compatible
 # ---------------------------------------------------------------------------
+
 
 @app.post("/v1/chat/completions")
 async def chat_completions(request: Request) -> JSONResponse:
@@ -206,6 +209,7 @@ async def chat_completions(request: Request) -> JSONResponse:
 
     from openpika.agent import make_agent, run_agent
     from openpika.db import add_message, get_or_create_session, touch_session
+
     agent, _ = await make_agent(model_id, session_id)
     reply, _ = await run_agent(agent, user_text, history)
 
@@ -214,22 +218,23 @@ async def chat_completions(request: Request) -> JSONResponse:
     await add_message(session_id, "assistant", reply)
     await touch_session(session_id)
 
-    return JSONResponse({
-        "id": f"chatcmpl-{uuid.uuid4().hex[:12]}",
-        "object": "chat.completion",
-        "created": int(time.time()),
-        "model": model_id,
-        "session_id": session_id,
-        "choices": [
-            {"index": 0, "message": {"role": "assistant", "content": reply}, "finish_reason": "stop"}
-        ],
-        "usage": {"prompt_tokens": -1, "completion_tokens": -1, "total_tokens": -1},
-    })
+    return JSONResponse(
+        {
+            "id": f"chatcmpl-{uuid.uuid4().hex[:12]}",
+            "object": "chat.completion",
+            "created": int(time.time()),
+            "model": model_id,
+            "session_id": session_id,
+            "choices": [{"index": 0, "message": {"role": "assistant", "content": reply}, "finish_reason": "stop"}],
+            "usage": {"prompt_tokens": -1, "completion_tokens": -1, "total_tokens": -1},
+        }
+    )
 
 
 def _build_pydantic_history(messages: list[dict[str, str]]) -> list[Any]:
     try:
         from pydantic_ai.messages import ModelMessage, ModelRequest, ModelResponse, TextPart, UserPromptPart
+
         history: list[ModelMessage] = []
         for m in messages:
             role = m.get("role", "")
@@ -247,9 +252,11 @@ def _build_pydantic_history(messages: list[dict[str, str]]) -> list[Any]:
 # Sessions
 # ---------------------------------------------------------------------------
 
+
 @app.get("/v1/sessions")
 async def list_sessions() -> dict[str, Any]:
     from openpika.db import list_db_sessions
+
     sessions = await list_db_sessions()
     return {"sessions": [dataclasses.asdict(s) for s in sessions], "total": len(sessions)}
 
@@ -257,6 +264,7 @@ async def list_sessions() -> dict[str, Any]:
 @app.get("/v1/sessions/{session_id}")
 async def get_session(session_id: str) -> dict[str, Any]:
     from openpika.db import get_db_session
+
     session = await get_db_session(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
@@ -266,6 +274,7 @@ async def get_session(session_id: str) -> dict[str, Any]:
 @app.get("/v1/sessions/{session_id}/messages")
 async def get_messages(session_id: str) -> dict[str, Any]:
     from openpika.db import get_db_messages, get_db_session
+
     if not await get_db_session(session_id):
         raise HTTPException(status_code=404, detail="Session not found")
     msgs = await get_db_messages(session_id)
@@ -276,9 +285,11 @@ async def get_messages(session_id: str) -> dict[str, Any]:
 # Tool config CRUD
 # ---------------------------------------------------------------------------
 
+
 @app.get("/v1/tools")
 async def list_tools_endpoint() -> dict[str, Any]:
     from openpika.db import list_tools
+
     tools = await list_tools()
     return {"tools": [dataclasses.asdict(t) for t in tools]}
 
@@ -290,6 +301,7 @@ async def create_tool_endpoint(request: Request) -> dict[str, Any]:
     if kind == "native":
         raise HTTPException(status_code=400, detail="Cannot create native tools via API.")
     from openpika.db import create_tool
+
     try:
         tool = await create_tool(
             name=body["name"],
@@ -308,6 +320,7 @@ async def update_tool_endpoint(tool_id: str, request: Request) -> dict[str, Any]
     body = await request.json()
     body.pop("kind", None)  # kind is immutable
     from openpika.db import update_tool
+
     tool = await update_tool(tool_id, **body)
     if tool is None:
         raise HTTPException(status_code=404, detail="Tool not found")
@@ -317,6 +330,7 @@ async def update_tool_endpoint(tool_id: str, request: Request) -> dict[str, Any]
 @app.delete("/v1/tools/{tool_id}")
 async def delete_tool_endpoint(tool_id: str) -> dict[str, Any]:
     from openpika.db import delete_tool
+
     ok = await delete_tool(tool_id)
     if not ok:
         raise HTTPException(status_code=400, detail="Cannot delete native tool, or tool not found.")
@@ -327,9 +341,11 @@ async def delete_tool_endpoint(tool_id: str) -> dict[str, Any]:
 # Session tool overrides
 # ---------------------------------------------------------------------------
 
+
 @app.get("/v1/sessions/{session_id}/tools/{tool_id}")
 async def get_session_tool(session_id: str, tool_id: str) -> dict[str, Any]:
     from openpika.db import get_session_overrides, get_tool
+
     tool = await get_tool(tool_id)
     if tool is None:
         raise HTTPException(status_code=404, detail="Tool not found")
@@ -343,6 +359,7 @@ async def set_session_tool(session_id: str, tool_id: str, request: Request) -> d
     body = await request.json()
     enabled = bool(body.get("enabled", True))
     from openpika.db import set_session_override
+
     await set_session_override(session_id, tool_id, enabled)
     return {"session_id": session_id, "tool_id": tool_id, "enabled": enabled}
 
@@ -350,6 +367,7 @@ async def set_session_tool(session_id: str, tool_id: str, request: Request) -> d
 @app.delete("/v1/sessions/{session_id}/tools/{tool_id}")
 async def delete_session_tool(session_id: str, tool_id: str) -> dict[str, Any]:
     from openpika.db import delete_session_override
+
     await delete_session_override(session_id, tool_id)
     return {"session_id": session_id, "tool_id": tool_id, "cleared": True}
 
@@ -358,9 +376,11 @@ async def delete_session_tool(session_id: str, tool_id: str) -> dict[str, Any]:
 # Skills CRUD
 # ---------------------------------------------------------------------------
 
+
 @app.get("/v1/skills")
 async def list_skills_endpoint() -> dict[str, Any]:
     from openpika.db import list_skills
+
     skills = await list_skills()
     return {"skills": [dataclasses.asdict(s) for s in skills]}
 
@@ -369,6 +389,7 @@ async def list_skills_endpoint() -> dict[str, Any]:
 async def create_skill_endpoint(request: Request) -> dict[str, Any]:
     body = await request.json()
     from openpika.db import create_skill
+
     try:
         skill = await create_skill(
             name=body["name"],
@@ -388,6 +409,7 @@ async def create_skill_endpoint(request: Request) -> dict[str, Any]:
 async def update_skill_endpoint(skill_id: str, request: Request) -> dict[str, Any]:
     body = await request.json()
     from openpika.db import update_skill
+
     skill = await update_skill(skill_id, **body)
     if skill is None:
         raise HTTPException(status_code=404, detail="Skill not found")
@@ -397,6 +419,7 @@ async def update_skill_endpoint(skill_id: str, request: Request) -> dict[str, An
 @app.delete("/v1/skills/{skill_id}")
 async def delete_skill_endpoint(skill_id: str) -> dict[str, Any]:
     from openpika.db import delete_skill
+
     ok = await delete_skill(skill_id)
     if not ok:
         raise HTTPException(status_code=400, detail="Cannot delete built-in skill, or skill not found.")
@@ -407,9 +430,11 @@ async def delete_skill_endpoint(skill_id: str) -> dict[str, Any]:
 # Pending skills (self-learning queue)
 # ---------------------------------------------------------------------------
 
+
 @app.get("/v1/skills/pending")
 async def list_pending_skills_endpoint(status: str = "pending") -> dict[str, Any]:
     from openpika.db import list_pending_skills
+
     skills = await list_pending_skills(status=status)
     return {"pending_skills": [dataclasses.asdict(s) for s in skills]}
 
@@ -417,6 +442,7 @@ async def list_pending_skills_endpoint(status: str = "pending") -> dict[str, Any
 @app.post("/v1/skills/pending/{skill_id}/approve")
 async def approve_pending_skill(skill_id: str) -> dict[str, Any]:
     from openpika.db import resolve_pending_skill
+
     ok = await resolve_pending_skill(skill_id, approve=True)
     if not ok:
         raise HTTPException(status_code=404, detail="Pending skill not found or already resolved.")
@@ -426,6 +452,7 @@ async def approve_pending_skill(skill_id: str) -> dict[str, Any]:
 @app.post("/v1/skills/pending/{skill_id}/reject")
 async def reject_pending_skill(skill_id: str) -> dict[str, Any]:
     from openpika.db import resolve_pending_skill
+
     ok = await resolve_pending_skill(skill_id, approve=False)
     if not ok:
         raise HTTPException(status_code=404, detail="Pending skill not found or already resolved.")
@@ -436,9 +463,11 @@ async def reject_pending_skill(skill_id: str) -> dict[str, Any]:
 # Cron scheduler
 # ---------------------------------------------------------------------------
 
+
 @app.get("/v1/cron")
 async def list_cron_jobs_endpoint() -> dict[str, Any]:
     from openpika.db import list_cron_jobs
+
     jobs = await list_cron_jobs()
     return {"cron_jobs": [dataclasses.asdict(j) for j in jobs]}
 
@@ -447,6 +476,7 @@ async def list_cron_jobs_endpoint() -> dict[str, Any]:
 async def create_cron_job_endpoint(request: Request) -> dict[str, Any]:
     body = await request.json()
     from openpika.db import create_cron_job
+
     try:
         job = await create_cron_job(
             name=body["name"],
@@ -463,6 +493,7 @@ async def create_cron_job_endpoint(request: Request) -> dict[str, Any]:
 async def update_cron_job_endpoint(job_id: str, request: Request) -> dict[str, Any]:
     body = await request.json()
     from openpika.db import update_cron_job
+
     job = await update_cron_job(job_id, **body)
     if job is None:
         raise HTTPException(status_code=404, detail="Cron job not found")
@@ -472,6 +503,7 @@ async def update_cron_job_endpoint(job_id: str, request: Request) -> dict[str, A
 @app.delete("/v1/cron/{job_id}")
 async def delete_cron_job_endpoint(job_id: str) -> dict[str, Any]:
     from openpika.db import delete_cron_job
+
     ok = await delete_cron_job(job_id)
     if not ok:
         raise HTTPException(status_code=404, detail="Cron job not found")
@@ -479,8 +511,133 @@ async def delete_cron_job_endpoint(job_id: str) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
+# Swarm (multi-agent event bus pipelines)
+# ---------------------------------------------------------------------------
+
+
+@app.get("/v1/swarm/presets")
+async def list_swarm_presets() -> dict[str, Any]:
+    """Return the built-in swarm preset roles and their event topology."""
+    from openpika.swarm import PRESETS
+
+    return {
+        "presets": {key: cfg.to_dict() for key, cfg in PRESETS.items()},
+        "event_types": {
+            "TaskAssignedEvent": "Kicks off the pipeline — published by the orchestrator",
+            "ResearchCompletedEvent": "Published by the researcher node",
+            "WritingCompletedEvent": "Published by the writer node",
+            "AnalysisCompletedEvent": "Published by the analyst node",
+            "ReviewCompletedEvent": "Published by the critic node",
+            "AgentErrorEvent": "Published when any node fails",
+        },
+    }
+
+
+@app.get("/v1/swarm/runs")
+async def list_swarm_runs_endpoint(limit: int = 50) -> dict[str, Any]:
+    from openpika.db import list_swarm_runs
+
+    runs = await list_swarm_runs(limit=limit)
+    return {"runs": [dataclasses.asdict(r) for r in runs], "total": len(runs)}
+
+
+@app.get("/v1/swarm/runs/{run_id}")
+async def get_swarm_run_endpoint(run_id: str) -> dict[str, Any]:
+    from openpika.db import get_swarm_run
+
+    run = await get_swarm_run(run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="Swarm run not found")
+    return dataclasses.asdict(run)
+
+
+@app.post("/v1/swarm/run")
+async def run_swarm_endpoint(request: Request) -> JSONResponse:
+    """Launch a multi-agent swarm pipeline.
+
+    Body (JSON):
+        task        str   — the high-level task to accomplish
+        pipeline    list  — ordered list of preset keys, e.g. ["research", "write"]
+        nodes       list  — custom node configs (alternative to pipeline)
+        timeout     float — max seconds to wait (default 300)
+        session_id  str   — optional; auto-generated if omitted
+
+    Either *pipeline* (preset keys) or *nodes* (custom NodeConfig dicts) must
+    be provided.  *pipeline* takes precedence if both are given.
+
+    Returns the run record including all events and the final agent output.
+    """
+    body = await request.json()
+    task: str = body.get("task", "").strip()
+    if not task:
+        raise HTTPException(status_code=400, detail="task is required")
+
+    pipeline_keys: list[str] = body.get("pipeline", [])
+    custom_nodes: list[dict] = body.get("nodes", [])
+    timeout: float = float(body.get("timeout", 300.0))
+    session_id: str = body.get("session_id") or str(uuid.uuid4())
+
+    from openpika.swarm import PRESETS, NodeConfig, Swarm
+
+    if pipeline_keys:
+        unknown = [k for k in pipeline_keys if k not in PRESETS]
+        if unknown:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unknown preset(s): {unknown}. Available: {list(PRESETS)}",
+            )
+        nodes = [PRESETS[k] for k in pipeline_keys]
+        node_names = [PRESETS[k].name for k in pipeline_keys]
+    elif custom_nodes:
+        try:
+            nodes = [NodeConfig.from_dict(n) for n in custom_nodes]
+        except (KeyError, TypeError) as exc:
+            raise HTTPException(status_code=400, detail=f"Invalid node config: {exc}")
+        node_names = [n.name for n in nodes]
+    else:
+        raise HTTPException(status_code=400, detail="pipeline or nodes is required")
+
+    from openpika.db import create_swarm_run, finish_swarm_run
+
+    db_run = await create_swarm_run(session_id=session_id, task=task, pipeline=node_names)
+
+    swarm = Swarm(nodes, session_id=session_id)
+    try:
+        events = await swarm.run(task, timeout=timeout)
+        status = "completed"
+    except Exception as exc:
+        events = []
+        status = "error"
+        await finish_swarm_run(db_run.id, status, [], str(exc))
+        raise HTTPException(status_code=500, detail=f"Swarm failed: {exc}")
+
+    # Extract final non-error output
+    final_output = ""
+    for evt in reversed(events):
+        if evt.event_type != "AgentErrorEvent" and evt.event_type != "TaskAssignedEvent":
+            final_output = evt.payload.get("result", "")
+            break
+
+    serialised_events = [e.model_dump() for e in events]
+    db_run = await finish_swarm_run(db_run.id, status, serialised_events, final_output)  # type: ignore[assignment]
+
+    return JSONResponse(
+        {
+            "run_id": db_run.id if db_run else "",
+            "session_id": session_id,
+            "task": task,
+            "pipeline": node_names,
+            "status": status,
+            "events": serialised_events,
+            "final_output": final_output,
+        }
+    )
+
+
+# ---------------------------------------------------------------------------
 # Webhooks
 # ---------------------------------------------------------------------------
+
 
 @app.post("/webhooks/{platform}")
 async def inbound_webhook(platform: str, request: Request) -> dict[str, str]:
@@ -488,9 +645,7 @@ async def inbound_webhook(platform: str, request: Request) -> dict[str, str]:
 
     if config.webhook_secret:
         sig_header = request.headers.get("X-Hub-Signature-256", "")
-        expected = "sha256=" + hmac.new(
-            config.webhook_secret.encode(), body, hashlib.sha256
-        ).hexdigest()
+        expected = "sha256=" + hmac.new(config.webhook_secret.encode(), body, hashlib.sha256).hexdigest()
         if not hmac.compare_digest(sig_header, expected):
             raise HTTPException(status_code=401, detail="Invalid signature")
 
@@ -509,10 +664,7 @@ async def inbound_webhook(platform: str, request: Request) -> dict[str, str]:
 
 def _extract_text(platform: str, payload: dict[str, Any]) -> str:
     if platform == "telegram":
-        return (
-            payload.get("message", {}).get("text", "")
-            or payload.get("edited_message", {}).get("text", "")
-        )
+        return payload.get("message", {}).get("text", "") or payload.get("edited_message", {}).get("text", "")
     if platform == "discord":
         return payload.get("content", "")
     if platform == "slack":
@@ -524,6 +676,7 @@ def _extract_text(platform: str, payload: dict[str, Any]) -> str:
 async def _handle_webhook_message(platform: str, text: str, payload: dict[str, Any]) -> None:
     try:
         from openpika.agent import get_agent
+
         agent = get_agent(config.model)
         async with agent:
             await agent.run(text)

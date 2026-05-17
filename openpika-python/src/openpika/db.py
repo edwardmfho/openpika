@@ -1,4 +1,5 @@
 """Async database layer for tool configs and skills (SQLAlchemy + aiosqlite/asyncpg)."""
+
 from __future__ import annotations
 
 import json
@@ -28,6 +29,7 @@ _initialized = False
 # Engine
 # ---------------------------------------------------------------------------
 
+
 def _make_async_url(url: str) -> str:
     if url.startswith("sqlite:///"):
         return url.replace("sqlite:///", "sqlite+aiosqlite:///", 1)
@@ -35,7 +37,7 @@ def _make_async_url(url: str) -> str:
         return "sqlite+aiosqlite:///:memory:"
     for pg in ("postgresql://", "postgres://"):
         if url.startswith(pg):
-            return "postgresql+asyncpg://" + url[len(pg):]
+            return "postgresql+asyncpg://" + url[len(pg) :]
     return url
 
 
@@ -159,6 +161,20 @@ _DDL: list[str] = [
         updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     )""",
     "CREATE INDEX IF NOT EXISTS idx_pending_skills_status ON pending_skills(status)",
+    # 0005 — swarm run audit log
+    """CREATE TABLE IF NOT EXISTS swarm_runs (
+        id TEXT PRIMARY KEY NOT NULL,
+        session_id TEXT NOT NULL,
+        task TEXT NOT NULL,
+        pipeline TEXT NOT NULL DEFAULT '[]',
+        status TEXT NOT NULL DEFAULT 'running',
+        started_at TEXT NOT NULL,
+        completed_at TEXT,
+        events_json TEXT NOT NULL DEFAULT '[]',
+        final_output TEXT NOT NULL DEFAULT ''
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_swarm_runs_session ON swarm_runs(session_id)",
+    "CREATE INDEX IF NOT EXISTS idx_swarm_runs_status ON swarm_runs(status)",
 ]
 
 
@@ -167,37 +183,98 @@ _DDL: list[str] = [
 # ---------------------------------------------------------------------------
 
 _BUILTIN_TOOLS: list[dict[str, Any]] = [
-    {"id": "web_search", "name": "Web Search", "kind": "native",
-     "description": "Search the web using DuckDuckGo", "sort_order": 0},
-    {"id": "read_file", "name": "Read File", "kind": "native",
-     "description": "Read a file from the filesystem", "sort_order": 1},
-    {"id": "write_file", "name": "Write File", "kind": "native",
-     "description": "Write content to a file", "sort_order": 2},
-    {"id": "terminal", "name": "Terminal", "kind": "native",
-     "description": "Execute a shell command", "sort_order": 3},
-    {"id": "execute_code", "name": "Execute Code", "kind": "native",
-     "description": "Execute code in Python, JS, Bash, Ruby, or Go", "sort_order": 4},
-    {"id": "generate_image", "name": "Generate Image", "kind": "native",
-     "description": "Generate an image using a configured image generation API", "sort_order": 5},
-    {"id": "propose_skill", "name": "Propose Skill", "kind": "native",
-     "description": "Propose a reusable skill for the user to review and approve", "sort_order": 6},
-    {"id": "browser_navigate", "name": "Browser Navigate", "kind": "native",
-     "description": "Navigate the browser to a URL (requires playwright)", "sort_order": 7},
-    {"id": "browser_snapshot", "name": "Browser Snapshot", "kind": "native",
-     "description": "Return current page URL, title, and visible text", "sort_order": 8},
-    {"id": "browser_click", "name": "Browser Click", "kind": "native",
-     "description": "Click an element on the current page by CSS selector", "sort_order": 9},
-    {"id": "browser_type", "name": "Browser Type", "kind": "native",
-     "description": "Type text into an input element on the current page", "sort_order": 10},
-    {"id": "browser_extract", "name": "Browser Extract", "kind": "native",
-     "description": "Extract text from elements matching a CSS selector", "sort_order": 11},
-    {"id": "browser_close", "name": "Browser Close", "kind": "native",
-     "description": "Close the browser and release all resources", "sort_order": 12},
+    {
+        "id": "web_search",
+        "name": "Web Search",
+        "kind": "native",
+        "description": "Search the web using DuckDuckGo",
+        "sort_order": 0,
+    },
+    {
+        "id": "read_file",
+        "name": "Read File",
+        "kind": "native",
+        "description": "Read a file from the filesystem",
+        "sort_order": 1,
+    },
+    {
+        "id": "write_file",
+        "name": "Write File",
+        "kind": "native",
+        "description": "Write content to a file",
+        "sort_order": 2,
+    },
+    {"id": "terminal", "name": "Terminal", "kind": "native", "description": "Execute a shell command", "sort_order": 3},
+    {
+        "id": "execute_code",
+        "name": "Execute Code",
+        "kind": "native",
+        "description": "Execute code in Python, JS, Bash, Ruby, or Go",
+        "sort_order": 4,
+    },
+    {
+        "id": "generate_image",
+        "name": "Generate Image",
+        "kind": "native",
+        "description": "Generate an image using a configured image generation API",
+        "sort_order": 5,
+    },
+    {
+        "id": "propose_skill",
+        "name": "Propose Skill",
+        "kind": "native",
+        "description": "Propose a reusable skill for the user to review and approve",
+        "sort_order": 6,
+    },
+    {
+        "id": "browser_navigate",
+        "name": "Browser Navigate",
+        "kind": "native",
+        "description": "Navigate the browser to a URL (requires playwright)",
+        "sort_order": 7,
+    },
+    {
+        "id": "browser_snapshot",
+        "name": "Browser Snapshot",
+        "kind": "native",
+        "description": "Return current page URL, title, and visible text",
+        "sort_order": 8,
+    },
+    {
+        "id": "browser_click",
+        "name": "Browser Click",
+        "kind": "native",
+        "description": "Click an element on the current page by CSS selector",
+        "sort_order": 9,
+    },
+    {
+        "id": "browser_type",
+        "name": "Browser Type",
+        "kind": "native",
+        "description": "Type text into an input element on the current page",
+        "sort_order": 10,
+    },
+    {
+        "id": "browser_extract",
+        "name": "Browser Extract",
+        "kind": "native",
+        "description": "Extract text from elements matching a CSS selector",
+        "sort_order": 11,
+    },
+    {
+        "id": "browser_close",
+        "name": "Browser Close",
+        "kind": "native",
+        "description": "Close the browser and release all resources",
+        "sort_order": 12,
+    },
 ]
 
 _BUILTIN_SKILLS: list[dict[str, Any]] = [
     {
-        "id": "summarise", "name": "Summarise", "icon": "📝",
+        "id": "summarise",
+        "name": "Summarise",
+        "icon": "📝",
         "description": "Condense a block of text into key points",
         "prompt_template": "Please summarise the following text concisely:\n\n{{text}}",
         "params_schema": json.dumps(
@@ -206,44 +283,57 @@ _BUILTIN_SKILLS: list[dict[str, Any]] = [
         "sort_order": 0,
     },
     {
-        "id": "draft_email", "name": "Draft Email", "icon": "✉️",
+        "id": "draft_email",
+        "name": "Draft Email",
+        "icon": "✉️",
         "description": "Write a professional email",
         "prompt_template": "Write a professional email.\n\nSubject: {{subject}}\nContext: {{context}}\nTone: {{tone}}",
-        "params_schema": json.dumps({
-            "subject": {"type": "string", "label": "Subject", "required": True},
-            "context": {"type": "string", "label": "What the email is about", "required": True, "multiline": True},
-            "tone":    {"type": "string", "label": "Tone", "default": "professional"},
-        }),
+        "params_schema": json.dumps(
+            {
+                "subject": {"type": "string", "label": "Subject", "required": True},
+                "context": {"type": "string", "label": "What the email is about", "required": True, "multiline": True},
+                "tone": {"type": "string", "label": "Tone", "default": "professional"},
+            }
+        ),
         "sort_order": 1,
     },
     {
-        "id": "explain_code", "name": "Explain Code", "icon": "💻",
+        "id": "explain_code",
+        "name": "Explain Code",
+        "icon": "💻",
         "description": "Plain-English explanation of a code snippet",
         "prompt_template": (
-            "Explain the following {{language}} code in plain English:\n\n"
-            "```{{language}}\n{{code}}\n```"
+            "Explain the following {{language}} code in plain English:\n\n```{{language}}\n{{code}}\n```"
         ),
-        "params_schema": json.dumps({
-            "code":     {"type": "string", "label": "Code snippet", "required": True, "multiline": True},
-            "language": {"type": "string", "label": "Language", "default": ""},
-        }),
+        "params_schema": json.dumps(
+            {
+                "code": {"type": "string", "label": "Code snippet", "required": True, "multiline": True},
+                "language": {"type": "string", "label": "Language", "default": ""},
+            }
+        ),
         "sort_order": 2,
     },
     {
-        "id": "search_web", "name": "Search Web", "icon": "🔍",
+        "id": "search_web",
+        "name": "Search Web",
+        "icon": "🔍",
         "description": "Search the web and summarise results",
         "prompt_template": "Search the web for: {{query}}\n\nSummarise what you find.",
         "params_schema": json.dumps({"query": {"type": "string", "label": "Search query", "required": True}}),
         "sort_order": 3,
     },
     {
-        "id": "write_file_skill", "name": "Write File", "icon": "📁",
+        "id": "write_file_skill",
+        "name": "Write File",
+        "icon": "📁",
         "description": "Create or update a file with specified content",
         "prompt_template": "Write the following content to {{path}}:\n\n{{content}}",
-        "params_schema": json.dumps({
-            "path":    {"type": "string", "label": "File path", "required": True},
-            "content": {"type": "string", "label": "Content", "required": True, "multiline": True},
-        }),
+        "params_schema": json.dumps(
+            {
+                "path": {"type": "string", "label": "File path", "required": True},
+                "content": {"type": "string", "label": "Content", "required": True, "multiline": True},
+            }
+        ),
         "sort_order": 4,
     },
 ]
@@ -291,6 +381,7 @@ async def init_db() -> None:
 # ---------------------------------------------------------------------------
 # Session / message CRUD
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class Session:
@@ -346,9 +437,7 @@ async def get_or_create_session(session_id: str, model: str, source: str = "api"
             ),
             {"id": session_id, "model": model, "source": source, "now": now},
         )
-        row = (await sess.execute(
-            text("SELECT * FROM sessions WHERE id = :id"), {"id": session_id}
-        )).fetchone()
+        row = (await sess.execute(text("SELECT * FROM sessions WHERE id = :id"), {"id": session_id})).fetchone()
     return _to_session(row)  # type: ignore[arg-type]
 
 
@@ -362,17 +451,13 @@ async def touch_session(session_id: str) -> None:
 
 async def list_db_sessions() -> list[Session]:
     async with session_ctx() as sess:
-        rows = await sess.execute(
-            text("SELECT * FROM sessions ORDER BY updated_at DESC")
-        )
+        rows = await sess.execute(text("SELECT * FROM sessions ORDER BY updated_at DESC"))
         return [_to_session(r) for r in rows.fetchall()]
 
 
 async def get_db_session(session_id: str) -> Session | None:
     async with session_ctx() as sess:
-        row = (await sess.execute(
-            text("SELECT * FROM sessions WHERE id = :id"), {"id": session_id}
-        )).fetchone()
+        row = (await sess.execute(text("SELECT * FROM sessions WHERE id = :id"), {"id": session_id})).fetchone()
         return _to_session(row) if row else None
 
 
@@ -402,6 +487,7 @@ async def get_db_messages(session_id: str) -> list[Message]:
 # ---------------------------------------------------------------------------
 # Data classes
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class ToolConfig:
@@ -437,6 +523,7 @@ class Skill:
 # ---------------------------------------------------------------------------
 # Row helpers
 # ---------------------------------------------------------------------------
+
 
 def _to_tool(row: Any) -> ToolConfig:
     d = dict(row._mapping)
@@ -482,6 +569,7 @@ def _utcnow() -> str:
 # Tool config CRUD
 # ---------------------------------------------------------------------------
 
+
 async def list_tools() -> list[ToolConfig]:
     async with session_ctx() as sess:
         rows = await sess.execute(text("SELECT * FROM tool_configs ORDER BY sort_order, id"))
@@ -514,10 +602,13 @@ async def create_tool(
                 "VALUES (:id, :name, :kind, :description, :config_json, 1, :sort_order, :now, :now)"
             ),
             {
-                "id": tool_id, "name": name, "kind": kind,
+                "id": tool_id,
+                "name": name,
+                "kind": kind,
                 "description": description,
                 "config_json": json.dumps(config or {}),
-                "sort_order": sort_order, "now": now,
+                "sort_order": sort_order,
+                "now": now,
             },
         )
     return await get_tool(tool_id)  # type: ignore[return-value]
@@ -562,6 +653,7 @@ async def delete_tool(tool_id: str) -> bool:
 # Session tool overrides
 # ---------------------------------------------------------------------------
 
+
 async def get_session_overrides(session_id: str) -> dict[str, bool]:
     async with session_ctx() as sess:
         rows = await sess.execute(
@@ -595,6 +687,7 @@ async def delete_session_override(session_id: str, tool_id: str) -> bool:
 # ---------------------------------------------------------------------------
 # Skills CRUD
 # ---------------------------------------------------------------------------
+
 
 async def list_skills() -> list[Skill]:
     async with session_ctx() as sess:
@@ -630,11 +723,15 @@ async def create_skill(
                 " 0, :pinned, :sort_order, :now, :now)"
             ),
             {
-                "id": skill_id, "name": name, "description": description, "icon": icon,
+                "id": skill_id,
+                "name": name,
+                "description": description,
+                "icon": icon,
                 "prompt_template": prompt_template,
                 "params_schema": json.dumps(params_schema or {}),
                 "pinned": 1 if pinned else 0,
-                "sort_order": sort_order, "now": now,
+                "sort_order": sort_order,
+                "now": now,
             },
         )
     return await get_skill(skill_id)  # type: ignore[return-value]
@@ -643,9 +740,7 @@ async def create_skill(
 async def update_skill(skill_id: str, **fields: Any) -> Skill | None:
     """Update a skill. Allowed fields: name, description, icon, prompt_template,
     params_schema, pinned, sort_order."""
-    allowed = {
-        "name", "description", "icon", "prompt_template", "params_schema", "pinned", "sort_order"
-    }
+    allowed = {"name", "description", "icon", "prompt_template", "params_schema", "pinned", "sort_order"}
     params: dict[str, Any] = {"id": skill_id, "now": _utcnow()}
     clauses: list[str] = []
     for key, val in fields.items():
@@ -671,15 +766,14 @@ async def update_skill(skill_id: str, **fields: Any) -> Skill | None:
 async def delete_skill(skill_id: str) -> bool:
     """Delete a non-builtin skill. Returns False if not found or if builtin."""
     async with session_ctx() as sess:
-        result = await sess.execute(
-            text("DELETE FROM skills WHERE id = :id AND is_builtin = 0"), {"id": skill_id}
-        )
+        result = await sess.execute(text("DELETE FROM skills WHERE id = :id AND is_builtin = 0"), {"id": skill_id})
         return result.rowcount > 0  # type: ignore[attr-defined]
 
 
 # ---------------------------------------------------------------------------
 # Cron jobs CRUD
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class CronJob:
@@ -743,6 +837,7 @@ async def create_cron_job(
         from datetime import datetime
 
         from croniter import croniter
+
         next_dt = croniter(schedule, datetime.now(UTC)).get_next(datetime)
         next_run = next_dt.isoformat()
     except Exception:
@@ -754,8 +849,15 @@ async def create_cron_job(
                 "INSERT INTO cron_jobs(id, name, schedule, prompt, model, enabled, next_run, created_at, updated_at) "
                 "VALUES (:id, :name, :schedule, :prompt, :model, 1, :next_run, :now, :now)"
             ),
-            {"id": job_id, "name": name, "schedule": schedule, "prompt": prompt,
-             "model": model, "next_run": next_run, "now": now},
+            {
+                "id": job_id,
+                "name": name,
+                "schedule": schedule,
+                "prompt": prompt,
+                "model": model,
+                "next_run": next_run,
+                "now": now,
+            },
         )
     return await get_cron_job(job_id)  # type: ignore[return-value]
 
@@ -790,6 +892,7 @@ async def delete_cron_job(job_id: str) -> bool:
 # ---------------------------------------------------------------------------
 # Pending skills CRUD (self-learning queue)
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class PendingSkill:
@@ -832,9 +935,7 @@ async def list_pending_skills(status: str = "pending") -> list[PendingSkill]:
 
 async def get_pending_skill(skill_id: str) -> PendingSkill | None:
     async with session_ctx() as sess:
-        row = (await sess.execute(
-            text("SELECT * FROM pending_skills WHERE id = :id"), {"id": skill_id}
-        )).fetchone()
+        row = (await sess.execute(text("SELECT * FROM pending_skills WHERE id = :id"), {"id": skill_id})).fetchone()
         return _to_pending_skill(row) if row else None
 
 
@@ -854,13 +955,120 @@ async def create_pending_skill(
                 "VALUES (:id, :name, :description, :prompt_template, :params_schema, 'pending', :now, :now)"
             ),
             {
-                "id": skill_id, "name": name, "description": description,
+                "id": skill_id,
+                "name": name,
+                "description": description,
                 "prompt_template": prompt_template,
                 "params_schema": json.dumps(params_schema or {}),
                 "now": now,
             },
         )
     return await get_pending_skill(skill_id)  # type: ignore[return-value]
+
+
+# ---------------------------------------------------------------------------
+# Swarm runs CRUD
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class SwarmRun:
+    id: str
+    session_id: str
+    task: str
+    pipeline: list[str]
+    status: str  # 'running', 'completed', 'error', 'timeout'
+    started_at: str
+    completed_at: str | None
+    events: list[Any]
+    final_output: str
+
+
+def _to_swarm_run(row: Any) -> SwarmRun:
+    d = dict(row._mapping)
+    try:
+        pipeline = json.loads(d.get("pipeline") or "[]")
+    except json.JSONDecodeError:
+        pipeline = []
+    try:
+        events = json.loads(d.get("events_json") or "[]")
+    except json.JSONDecodeError:
+        events = []
+    return SwarmRun(
+        id=d["id"],
+        session_id=d["session_id"],
+        task=d["task"],
+        pipeline=pipeline,
+        status=d.get("status", "running"),
+        started_at=d.get("started_at", ""),
+        completed_at=d.get("completed_at"),
+        events=events,
+        final_output=d.get("final_output", ""),
+    )
+
+
+async def create_swarm_run(
+    session_id: str,
+    task: str,
+    pipeline: list[str],
+) -> SwarmRun:
+    run_id = str(uuid.uuid4())
+    now = _utcnow()
+    async with session_ctx() as sess:
+        await sess.execute(
+            text(
+                "INSERT INTO swarm_runs"
+                "(id, session_id, task, pipeline, status, started_at, events_json, final_output) "
+                "VALUES (:id, :session_id, :task, :pipeline, 'running', :now, '[]', '')"
+            ),
+            {
+                "id": run_id,
+                "session_id": session_id,
+                "task": task,
+                "pipeline": json.dumps(pipeline),
+                "now": now,
+            },
+        )
+    return await get_swarm_run(run_id)  # type: ignore[return-value]
+
+
+async def get_swarm_run(run_id: str) -> SwarmRun | None:
+    async with session_ctx() as sess:
+        row = (await sess.execute(text("SELECT * FROM swarm_runs WHERE id = :id"), {"id": run_id})).fetchone()
+        return _to_swarm_run(row) if row else None
+
+
+async def list_swarm_runs(limit: int = 50) -> list[SwarmRun]:
+    async with session_ctx() as sess:
+        rows = await sess.execute(
+            text("SELECT * FROM swarm_runs ORDER BY started_at DESC LIMIT :limit"),
+            {"limit": limit},
+        )
+        return [_to_swarm_run(r) for r in rows.fetchall()]
+
+
+async def finish_swarm_run(
+    run_id: str,
+    status: str,
+    events: list[Any],
+    final_output: str,
+) -> SwarmRun | None:
+    now = _utcnow()
+    async with session_ctx() as sess:
+        await sess.execute(
+            text(
+                "UPDATE swarm_runs SET status = :status, completed_at = :now, "
+                "events_json = :events, final_output = :output WHERE id = :id"
+            ),
+            {
+                "id": run_id,
+                "status": status,
+                "now": now,
+                "events": json.dumps(events),
+                "output": final_output,
+            },
+        )
+    return await get_swarm_run(run_id)
 
 
 async def resolve_pending_skill(skill_id: str, approve: bool) -> bool:
@@ -884,7 +1092,9 @@ async def resolve_pending_skill(skill_id: str, approve: bool) -> bool:
                     "VALUES (:id, :name, :description, '', :prompt_template, :params_schema, 0, 0, 0, :now, :now)"
                 ),
                 {
-                    "id": new_id, "name": pending.name, "description": pending.description,
+                    "id": new_id,
+                    "name": pending.name,
+                    "description": pending.description,
                     "prompt_template": pending.prompt_template,
                     "params_schema": json.dumps(pending.params_schema),
                     "now": now,

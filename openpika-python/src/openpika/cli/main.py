@@ -21,6 +21,7 @@ def init_cmd(
 ) -> None:
     """Interactive setup wizard — configure API key, model, and gateway port."""
     from openpika.cli.init_cmd import main
+
     main(reset=reset)
 
 
@@ -33,6 +34,7 @@ def run_cmd(
 ) -> None:
     """Run a one-shot task and print the result."""
     from openpika.cli.run_cmd import main
+
     main(task=task, model=model, plain=plain, no_tools=no_tools)
 
 
@@ -44,6 +46,7 @@ def chat_cmd(
 ) -> None:
     """Start an interactive chat session."""
     from openpika.cli.chat_cmd import main
+
     main(model=model, plain=plain, system=system)
 
 
@@ -56,6 +59,7 @@ def serve_cmd(
 ) -> None:
     """Start the OpenPika gateway (Rust if available, else Python)."""
     from openpika.cli.serve_cmd import main
+
     main(host=host, port=port, python_only=python_only, workers=workers)
 
 
@@ -95,6 +99,7 @@ def config_cmd(
             ("raw_turns", str(c.raw_turns)),
         ]
         from rich.table import Table
+
         table = Table(show_header=False, box=None, padding=(0, 2))
         table.add_column(style="dim")
         table.add_column()
@@ -114,6 +119,7 @@ def ui_cmd(
 ) -> None:
     """Start the backend gateway and React web UI together."""
     from openpika.cli.ui_cmd import main
+
     main(
         port=port,
         host=host,
@@ -128,6 +134,7 @@ def ui_cmd(
 def version_cmd() -> None:
     """Print the installed OpenPika version."""
     from openpika import __version__
+
     console.print(f"openpika {__version__}")
 
 
@@ -138,7 +145,9 @@ def version_cmd() -> None:
 from openpika.cli.cron_cmd import app as _cron_app  # noqa: E402
 from openpika.cli.mcp_cmd import app as _mcp_app  # noqa: E402
 from openpika.cli.skills_cmd import app as _skills_app  # noqa: E402
+from openpika.cli.swarm_cmd import app as _swarm_app  # noqa: E402
 
-app.add_typer(_mcp_app,    name="mcp",    help="Manage MCP server tool registrations.")
-app.add_typer(_cron_app,   name="cron",   help="Manage scheduled cron jobs.")
+app.add_typer(_mcp_app, name="mcp", help="Manage MCP server tool registrations.")
+app.add_typer(_cron_app, name="cron", help="Manage scheduled cron jobs.")
 app.add_typer(_skills_app, name="skills", help="Manage skills and agent skill proposals.")
+app.add_typer(_swarm_app, name="swarm", help="Run multi-agent swarm pipelines.")

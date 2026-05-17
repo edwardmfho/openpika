@@ -35,6 +35,7 @@ def _load_dotenv() -> None:
     """Load .env silently; never crash."""
     try:
         from dotenv import load_dotenv
+
         # project .env first, then ~/.openpika/.env
         load_dotenv(dotenv_path=Path.cwd() / ".env", override=False)
         load_dotenv(dotenv_path=ENV_FILE, override=False)
@@ -50,6 +51,7 @@ def _load_dotenv() -> None:
 def _load_toml() -> dict:
     try:
         import tomllib
+
         if CONFIG_FILE.exists():
             return tomllib.loads(CONFIG_FILE.read_text())
     except Exception:
@@ -64,19 +66,13 @@ class Config:
         _load_dotenv()
         toml = _load_toml()
 
-        self.model: str = (
-            os.environ.get("OPENPIKA_MODEL")
-            or toml.get("model", "anthropic:claude-sonnet-4-6")
-        )
-        self.api_key: str = (
-            os.environ.get("ANTHROPIC_API_KEY")
-            or toml.get("api_key", "")
-        )
+        self.model: str = os.environ.get("OPENPIKA_MODEL") or toml.get("model", "anthropic:claude-sonnet-4-6")
+        self.api_key: str = os.environ.get("ANTHROPIC_API_KEY") or toml.get("api_key", "")
         # Ensure pydantic-ai providers can find the key via os.environ.
         # The key stored in TOML is always the active provider's key; backfill
         # the corresponding env var so provider constructors can locate it.
         if self.api_key:
-            provider = (self.model.split(":")[0] if ":" in self.model else "anthropic")
+            provider = self.model.split(":")[0] if ":" in self.model else "anthropic"
             env_var = _PROVIDER_KEY.get(provider, "ANTHROPIC_API_KEY")
             if not os.environ.get(env_var):
                 os.environ[env_var] = self.api_key
@@ -85,30 +81,12 @@ class Config:
             or os.environ.get("OPENPIKA_DATABASE_URL")
             or toml.get("database_url", f"sqlite:///{DB_FILE}")
         )
-        self.gateway_host: str = (
-            os.environ.get("OPENPIKA_HOST")
-            or toml.get("host", "0.0.0.0")
-        )
-        self.gateway_port: int = int(
-            os.environ.get("OPENPIKA_PORT")
-            or toml.get("port", 8080)
-        )
-        self.log_level: str = (
-            os.environ.get("OPENPIKA_LOG_LEVEL")
-            or toml.get("log_level", "info")
-        )
-        self.max_tokens: int = int(
-            os.environ.get("OPENPIKA_MAX_TOKENS")
-            or toml.get("max_tokens", 100_000)
-        )
-        self.raw_turns: int = int(
-            os.environ.get("OPENPIKA_RAW_TURNS")
-            or toml.get("raw_turns", 6)
-        )
-        self.webhook_secret: str = (
-            os.environ.get("OPENPIKA_WEBHOOK_SECRET")
-            or toml.get("webhook_secret", "")
-        )
+        self.gateway_host: str = os.environ.get("OPENPIKA_HOST") or toml.get("host", "0.0.0.0")
+        self.gateway_port: int = int(os.environ.get("OPENPIKA_PORT") or toml.get("port", 8080))
+        self.log_level: str = os.environ.get("OPENPIKA_LOG_LEVEL") or toml.get("log_level", "info")
+        self.max_tokens: int = int(os.environ.get("OPENPIKA_MAX_TOKENS") or toml.get("max_tokens", 100_000))
+        self.raw_turns: int = int(os.environ.get("OPENPIKA_RAW_TURNS") or toml.get("raw_turns", 6))
+        self.webhook_secret: str = os.environ.get("OPENPIKA_WEBHOOK_SECRET") or toml.get("webhook_secret", "")
 
     def require_api_key(self) -> str:
         """Return the API key for the configured provider, or exit with setup instructions."""
@@ -118,6 +96,7 @@ class Config:
         if key:
             return key
         from rich.console import Console
+
         Console().print(
             f"\n[bold red]No API key configured.[/bold red]\n"
             f"Provider [cyan]{provider}[/cyan] requires [yellow]{env_var}[/yellow] to be set.\n\n"
@@ -144,6 +123,7 @@ def save(updates: dict) -> None:
     if CONFIG_FILE.exists():
         try:
             import tomllib
+
             existing = tomllib.loads(CONFIG_FILE.read_text())
         except Exception:
             pass
@@ -153,6 +133,7 @@ def save(updates: dict) -> None:
     # Write (use tomli-w if available, otherwise hand-craft simple TOML)
     try:
         import tomli_w
+
         CONFIG_FILE.write_text(tomli_w.dumps(existing))
     except ImportError:
         lines = ["# OpenPika configuration\n"]
